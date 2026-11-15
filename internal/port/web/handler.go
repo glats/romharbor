@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sync/atomic"
 
 	"app.ddd/internal/app"
 	"app.ddd/internal/app/query"
@@ -24,11 +25,13 @@ var staticFiles embed.FS
 const genericErrorMessage = "Something went wrong. Please try again."
 
 type Handler struct {
-	app        *app.Application
-	logger     *slog.Logger
-	newID      func() string
-	pages      *template.Template
-	errorPages *template.Template
+	app          *app.Application
+	logger       *slog.Logger
+	newID        func() string
+	pages        *template.Template
+	errorPages   *template.Template
+	catalogPages *template.Template
+	jobSeq       atomic.Uint64
 }
 
 type Option func(*Handler)
@@ -52,6 +55,7 @@ func NewHandler(application *app.Application, opts ...Option) http.Handler {
 			"templates/layout.html", "templates/users_page.html", "templates/users_section.html", "templates/flash.html")),
 		errorPages: template.Must(template.New("errors").Funcs(funcs).ParseFS(templateFiles,
 			"templates/layout.html", "templates/error_main.html")),
+		catalogPages: parseCatalogPages(),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -63,7 +67,11 @@ func NewHandler(application *app.Application, opts ...Option) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", h.root)
+	if application.Catalog != nil {
+		h.mountCatalog(mux)
+	} else {
+		mux.HandleFunc("GET /{$}", h.root)
+	}
 	mux.HandleFunc("GET /users", h.list)
 	mux.HandleFunc("GET /users/{id}/edit", h.edit)
 	mux.HandleFunc("POST /users", h.create)

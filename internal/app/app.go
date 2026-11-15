@@ -1,6 +1,7 @@
 package app
 
 import (
+	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/query"
 	"app.ddd/internal/common/decorator"
@@ -10,6 +11,7 @@ import (
 type Application struct {
 	Command *Command
 	Query   *Query
+	Catalog *catalog.Service
 }
 
 type Command struct {

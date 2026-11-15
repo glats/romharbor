@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/caarlos0/env/v11"
 )
@@ -11,6 +12,7 @@ type Config struct {
 	Database DatabaseConfig `envPrefix:"DATABASE_"`
 	Log      LogConfig      `envPrefix:"LOG_"`
 	Seed     SeedConfig     `envPrefix:"DB_SEED_"`
+	ROM      ROMConfig      `envPrefix:"ROM_"`
 }
 
 type HTTPConfig struct {
@@ -28,6 +30,13 @@ type LogConfig struct {
 
 type SeedConfig struct {
 	Enabled bool `env:"ENABLED" envDefault:"false"`
+}
+
+type ROMConfig struct {
+	Library  string        `env:"LIBRARY_PATH" envDefault:"./data/roms"`
+	Cache    string        `env:"CACHE_PATH" envDefault:"./data/romcache"`
+	Sources  string        `env:"SOURCES" envDefault:"archive.org"`
+	CacheTTL time.Duration `env:"CACHE_TTL" envDefault:"24h"`
 }
 
 func Parse() (Config, error) {

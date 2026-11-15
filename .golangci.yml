@@ -80,6 +80,18 @@ linters:
             - $gostd
             - app.ddd/internal/adapter/config
             - github.com/caarlos0/env
+        adapter-rom:
+          list-mode: strict
+          files:
+            - "**/internal/adapter/romcache/**"
+            - "**/internal/adapter/romjobs/**"
+            - "**/internal/adapter/romlibrary/**"
+            - "**/internal/adapter/romsource/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - app.ddd/internal/adapter$
+            - app.ddd/internal/domain
         common:
           list-mode: strict
           files:

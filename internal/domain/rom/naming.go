@@ -1,0 +1,165 @@
+package rom
+
+import (
+	"fmt"
+	"path"
+	"regexp"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
+const maxBaseNameBytes = 120
+
+// archiveExtensions are the container formats the sources publish.
+var archiveExtensions = []string{".zip", ".7z", ".rar"}
+
+// romExtensions are the file extensions that hold a ROM.
+var romExtensions = []string{
+	".nes", ".fds", ".unf", ".unif", ".sfc", ".smc", ".smd", ".fig", ".swc",
+	".gb", ".gbc", ".gba", ".nds", ".dsi", ".n64", ".z64", ".v64", ".u1", ".ndd",
+	".md", ".gen", ".bin", ".smd", ".iso", ".chd", ".cue", ".pbp", ".gcm", ".rvz",
+	".wbfs", ".3ds", ".cia", ".cci", ".a26", ".lnx", ".lyx", ".vpl", ".nsp", ".xci",
+}
+
+// ArchiveExtension reports whether ext is an archive format that Install can extract.
+func ArchiveExtension(ext string) bool {
+	lower := strings.ToLower(ext)
+	return lower == ".zip" || lower == ".7z"
+}
+
+// IsArchive reports whether a published file name is a container archive.
+func IsArchive(name string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range archiveExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsGameFile reports whether a file of an item holds a game. Firmware and
+// BIOS collections are not games.
+func IsGameFile(name string) bool {
+	lower := strings.ToLower(name)
+	for _, part := range strings.Split(lower, "/") {
+		if part == "bios" || part == "firmware" || part == "system" {
+			return false
+		}
+	}
+	for _, ext := range archiveExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	for _, ext := range romExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+var titleNoise = regexp.MustCompile(`(?i)^(no-intro\s*-\s*|redump\s*-\s*|mame\s*-\s*)`)
+
+// CleanTitle turns a published file name into a readable game title.
+func CleanTitle(name string) string {
+	base := path.Base(name)
+	for _, ext := range archiveExtensions {
+		if strings.HasSuffix(strings.ToLower(base), ext) {
+			base = base[:len(base)-len(ext)]
+			break
+		}
+	}
+	base = titleNoise.ReplaceAllString(base, "")
+	base = strings.ReplaceAll(base, "'", "")
+	base = strings.ReplaceAll(base, "_", " ")
+	base = strings.TrimSpace(base)
+	return base
+}
+
+// RegionOf reads the region tag of a No-Intro or Redump title.
+func RegionOf(title string) string {
+	lower := strings.ToLower(title)
+	for _, region := range []string{
+		"world", "usa", "europe", "japan", "asia", "australia", "brazil", "korea", "china",
+	} {
+		if strings.Contains(lower, "("+region+")") || strings.Contains(lower, "("+region[:3]) {
+			return region
+		}
+	}
+	return ""
+}
+
+// SplitFileName returns the sanitized base name and the extension of a file
+// name, dropping any directory part.
+func SplitFileName(fileName string) (string, string, error) {
+	name := sanitizeName(lastPathElement(fileName))
+	ext := path.Ext(name)
+	base := strings.Trim(truncateBytes(strings.TrimSuffix(name, ext), maxBaseNameBytes), ". ")
+	if base == "" {
+		return "", "", fmt.Errorf("romcatalog: %q has no usable ROM name", fileName)
+	}
+	return base, ext, nil
+}
+
+func lastPathElement(s string) string {
+	return s[strings.LastIndexAny(s, `/\`)+1:]
+}
+
+func sanitizeName(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) && !unicode.IsSpace(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return strings.Trim(strings.Join(strings.Fields(b.String()), " "), ". ")
+}
+
+func truncateBytes(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// PickROM returns the index of the ROM to install: the first match at the
+// archive root, or otherwise the first match in any folder.
+func PickROM(names []string, exts []string) (int, bool) {
+	first := -1
+	for i, name := range names {
+		if !HasROMExt(name, exts) {
+			continue
+		}
+		if !strings.Contains(name, "/") {
+			return i, true
+		}
+		if first < 0 {
+			first = i
+		}
+	}
+	return first, first >= 0
+}
+
+// HasROMExt reports whether name ends with one of the extensions, ignoring case.
+func HasROMExt(name string, exts []string) bool {
+	lower := strings.ToLower(name)
+	for _, ext := range exts {
+		if strings.HasSuffix(lower, strings.ToLower(ext)) {
+			return true
+		}
+	}
+	return false
+}
+
+// NoROMError reports an archive that holds no file with an accepted extension.
+func NoROMError(exts []string) error {
+	return fmt.Errorf("romcatalog: archive contains no file with extension %s", strings.Join(exts, ", "))
+}

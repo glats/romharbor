@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,6 +16,18 @@ func unsetEnv(t *testing.T, keys ...string) {
 		t.Setenv(key, "")
 		require.NoError(t, os.Unsetenv(key))
 	}
+}
+
+func TestParseUsesPortableROMDefaults(t *testing.T) {
+	unsetEnv(t, "ROM_LIBRARY_PATH", "ROM_CACHE_PATH", "ROM_SOURCES", "ROM_CACHE_TTL")
+
+	cfg, err := Parse()
+
+	require.NoError(t, err)
+	assert.Equal(t, "./data/roms", cfg.ROM.Library)
+	assert.Equal(t, "./data/romcache", cfg.ROM.Cache)
+	assert.Equal(t, "archive.org", cfg.ROM.Sources)
+	assert.Equal(t, 24*time.Hour, cfg.ROM.CacheTTL)
 }
 
 func TestParseUsesDefaults(t *testing.T) {

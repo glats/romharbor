@@ -19,11 +19,77 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"app.ddd/internal/adapter/config"
+	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/service"
 )
 
 func TestMain(m *testing.M) {
 	log.Logger = zerolog.Nop()
 	os.Exit(m.Run())
+}
+
+func TestCatalogServerLeavesResponsesUncapped(t *testing.T) {
+	server := newHTTPServer(service.NewAppWithCatalog(nil, catalog.Dependencies{}))
+
+	assert.Zero(t, server.WriteTimeout)
+	assert.Equal(t, 10*time.Second, server.ReadHeaderTimeout)
+}
+
+func TestUsersOnlyServerKeepsBaseTimeouts(t *testing.T) {
+	server := newHTTPServer(service.NewApp(nil))
+
+	assert.Equal(t, 30*time.Second, server.WriteTimeout)
+}
+
+func TestParseFlagsOverridesEnvironment(t *testing.T) {
+	t.Setenv("HTTP_ADDR", ":9000")
+	t.Setenv("ROM_LIBRARY_PATH", "/env/library")
+	t.Setenv("ROM_SOURCES", "lolroms")
+	t.Setenv("ROM_CACHE_TTL", "1h")
+	base, err := config.Parse()
+	require.NoError(t, err)
+
+	cfg, err := parseFlags([]string{
+		"--listen=127.0.0.1:8082", "--library=/flag/library", "--cache=/flag/cache",
+		"--sources=archive.org", "--ttl=5m",
+	}, base, io.Discard)
+
+	require.NoError(t, err)
+	assert.Equal(t, "127.0.0.1:8082", cfg.HTTP.Addr)
+	assert.Equal(t, "/flag/library", cfg.ROM.Library)
+	assert.Equal(t, "/flag/cache", cfg.ROM.Cache)
+	assert.Equal(t, "archive.org", cfg.ROM.Sources)
+	assert.Equal(t, 5*time.Minute, cfg.ROM.CacheTTL)
+}
+
+func TestParseFlagsKeepsEnvironmentWhenUnset(t *testing.T) {
+	t.Setenv("ROM_LIBRARY_PATH", "/env/library")
+	t.Setenv("ROM_SOURCES", "dlarchive")
+	base, err := config.Parse()
+	require.NoError(t, err)
+
+	cfg, err := parseFlags(nil, base, io.Discard)
+
+	require.NoError(t, err)
+	assert.Equal(t, "/env/library", cfg.ROM.Library)
+	assert.Equal(t, "dlarchive", cfg.ROM.Sources)
+	assert.Equal(t, base, cfg)
+}
+
+func TestBuildSourcesDefaultsToArchiveOrgAndRejectsUnknown(t *testing.T) {
+	sources, err := buildSources("archive.org")
+	require.NoError(t, err)
+	require.Len(t, sources, 1)
+	assert.Equal(t, "archive.org", sources[0].Name())
+
+	_, err = buildSources("archive.org,unknown")
+	assert.EqualError(t, err, "unknown source: unknown")
+}
+
+func TestParseFlagsRejectsUnknownFlag(t *testing.T) {
+	_, err := parseFlags([]string{"--no-such-flag"}, config.Config{}, io.Discard)
+
+	assert.Error(t, err)
 }
 
 type runningServer struct {

@@ -5,10 +5,11 @@ selected games for compatible computers and handhelds.
 
 ## Project status
 
-This repository currently contains the application foundation, not a working ROM catalog.
-It starts from [glats/web-base](https://github.com/glats/web-base) at commit
-`32edc0324734c35e37e61eb8f4ed7995aa2a79db`. The inherited `/users` page is a runnable example;
-catalog browsing, source adapters, downloads and device transfers have not been ported here.
+This repository is the standalone ROMHarbor application. It starts from
+[glats/web-base](https://github.com/glats/web-base) at commit `32edc0324734c35e37e61eb8f4ed7995aa2a79db`
+and carries the ROM catalog extracted from the legacy `romcatalog` service: the platform picker, search,
+game detail pages, download jobs and platform folders. The inherited `/users` page remains as a runnable
+example. Device transfers and new download providers are not part of this application.
 No ROMs, BIOS, keys, private deployment configuration or library data are included.
 
 ROMHarbor is licensed under MIT. Vendored assets retain their own notices in
@@ -74,17 +75,34 @@ not local databases, Git history or development tools. The 35-second stop timeou
 | `LOG_LEVEL` | `info` | minimum level for zerolog and slog (decorators log at `debug`) |
 | `LOG_PRETTY` | `false` | readable terminal output when true; JSON when false. `env.dist` sets true for local work |
 | `DB_SEED_ENABLED` | `false` | opt in to example users after migrations, before serving |
+| `ROM_LIBRARY_PATH` | `./data/roms` | library root; each platform downloads into its folder (`genesis` into `megadrive`) |
+| `ROM_CACHE_PATH` | `./data/romcache` | directory of cached platform listings |
+| `ROM_SOURCES` | `archive.org` | comma-separated sources: `archive.org` (default), `dlarchive`, `lolroms` (opt-in) |
+| `ROM_CACHE_TTL` | `24h` | how long a cached listing stays fresh |
+
+The command-line flags `--listen`, `--library`, `--cache`, `--sources` and `--ttl` override `HTTP_ADDR`,
+`ROM_LIBRARY_PATH`, `ROM_CACHE_PATH`, `ROM_SOURCES` and `ROM_CACHE_TTL` for one run. Installing archives needs
+the `7z` binary on the host for `.7z` files; the Docker image installs `p7zip-full` and CA certificates.
+
+The opt-in `lolroms` source requires search text; results remain available for detail and download
+until the application restarts and do not replace cached platform listings. Installs are serialized
+within the running application to protect resumable staging files; queued jobs remain cancelable.
 
 Cloud deployments should use `LOG_PRETTY=false`. Existing `.env` files are not overwritten by `make dev-bootstrap`;
 add new variables to them explicitly when updating this base.
 
 ## What it does
 
-One page, `/users`, with a form to add users and an editable table. Everything goes through application use cases.
+The root page is the ROM catalog. The inherited `/users` page, with a form to add users and an editable table,
+remains as an example. Everything goes through application use cases.
 
 | Request | Answer |
 |---------|--------|
-| `GET /` | redirect to `/users` |
+| `GET /` | the ROM catalog: platform picker and downloads (users-only construction has no root route) |
+| `GET /platform/{slug}?q=` | platform page with search; shows the library folder downloads land in |
+| `GET /game/{base64id}` | game detail page with checksums and a download button |
+| `GET /api/platforms`, `/api/games`, `/api/game`, `/api/jobs`, `/api/job` | JSON listings and job state |
+| `POST /api/download` | `202` with the job; `404` unknown game, `400` game without a file |
 | `GET /users` | full page, or only `#users-section` when the request comes from htmx |
 | `GET /users/{id}/edit` | the section with that row in edit mode |
 | `POST /users` | `201` and the section; `422` invalid, `409` email in use (the section with the message) |
@@ -115,6 +133,7 @@ internal/
 ├── adapter/
 │   ├── repository.go       repository interfaces (contracts only)
 │   ├── config/             environment (caarlos0/env)
+│   ├── romcache/ romjobs/ romlibrary/ romsource/   ROM listing cache, job store, library installs, sources
 │   └── sqlite/             connection, dbmate migrations, bob repository
 │       ├── migrations/     SQL files with -- migrate:up / -- migrate:down (embedded)
 │       ├── seeds/          ordered, repeatable SQL files (embedded; opt-in example users)

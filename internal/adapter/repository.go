@@ -3,6 +3,7 @@ package adapter
 import (
 	"context"
 
+	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/domain/user"
 )
 
@@ -13,4 +14,27 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id string) (user.User, error)
 	FindByEmail(ctx context.Context, email string) (user.User, error)
 	List(ctx context.Context) ([]user.User, error)
+}
+
+type RomSource interface {
+	Name() string
+	Platforms() []string
+	Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
+}
+
+type RomListingCache interface {
+	Load(platform string) (rom.Listing, error)
+	Store(platform string, listing rom.Listing) error
+}
+
+type RomLibrary interface {
+	PlatformDir(p rom.Platform) (string, error)
+	Install(ctx context.Context, req rom.InstallRequest, progress func(downloaded, total int64)) (rom.InstallResult, error)
+}
+
+type RomJobStore interface {
+	Add(job rom.Job) rom.Job
+	Get(id string) (rom.Job, bool)
+	Update(id string, change func(*rom.Job))
+	List() []rom.Job
 }

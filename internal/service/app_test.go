@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/mock"
 	"app.ddd/internal/app/query"
@@ -20,6 +21,11 @@ func TestNewAppWiresEveryHandler(t *testing.T) {
 	assert.NotNil(t, application.Command.DeleteUser)
 	assert.NotNil(t, application.Query.ObtainUser)
 	assert.NotNil(t, application.Query.ListUsers)
+}
+
+func TestNewAppWithCatalogAttachesCatalogService(t *testing.T) {
+	assert.Nil(t, NewApp(mock.NewUserRepository(t)).Catalog)
+	assert.NotNil(t, NewAppWithCatalog(mock.NewUserRepository(t), catalog.Dependencies{}).Catalog)
 }
 
 func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
