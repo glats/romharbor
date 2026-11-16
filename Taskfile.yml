@@ -29,10 +29,11 @@ tasks:
       - go tool -modfile=./tools/go.tool.mod mockery --config={{.MOCKERY_YAML}}
 
   generate:
-    desc: Generate bob models from the migrations
+    desc: Generate provider clients and bob models from the migrations
     vars:
       BOB_CONFIG_FILE: '{{.BOB_CONFIG_FILE | default "./config/bobgen.yaml"}}'
     cmds:
+      - task: generate-providers
       - |
         set -euo pipefail
         rm -rf .tmp && mkdir -p .tmp
@@ -41,6 +42,27 @@ tasks:
         SQLITE_DSN="{{.ROOT_DIR}}/.tmp/gen.db" go tool -modfile={{.ROOT_DIR}}/tools/go.tool.mod bobgen-sqlite -c "{{.ROOT_DIR}}/{{.BOB_CONFIG_FILE}}"
         cd ../../..
         rm -rf .tmp
+
+  generate-providers:
+    desc: Generate HTTP clients from the consumer-maintained provider contracts
+    cmds:
+      - go tool -modfile=./tools/go.tool.mod oapi-codegen --config config/oapi-codegen/archiveorg.yaml contract/openapi/archiveorg.yaml
+      - go tool -modfile=./tools/go.tool.mod oapi-codegen --config config/oapi-codegen/dlarchive.yaml contract/openapi/dlarchive.yaml
+      - go tool -modfile=./tools/go.tool.mod gofumpt -w internal/adapter/romsource/archiveorgapi/client.gen.go internal/adapter/romsource/dlarchiveapi/client.gen.go
+
+  check-providers:
+    desc: Check provider client generation without modifying the worktree
+    cmds:
+      - |
+        set -eu
+        scratch=$(mktemp -d)
+        trap 'rm -rf "$scratch"' EXIT
+        for provider in archiveorg dlarchive; do
+          sed "s|^output:.*|output: $scratch/$provider.go|" "config/oapi-codegen/$provider.yaml" > "$scratch/$provider.yaml"
+          go tool -modfile=./tools/go.tool.mod oapi-codegen --config "$scratch/$provider.yaml" "contract/openapi/$provider.yaml"
+          go tool -modfile=./tools/go.tool.mod gofumpt -w "$scratch/$provider.go"
+          diff -u "internal/adapter/romsource/${provider}api/client.gen.go" "$scratch/$provider.go"
+        done
 
   dev-bootstrap:
     desc: Create .env from env.dist when it does not exist

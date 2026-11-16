@@ -8,7 +8,7 @@ buildGo125Module {
   pname = "romharbor";
   version = "0-unstable";
   src = lib.cleanSource ../.;
-  vendorHash = "sha256-6FdeMEgi/0nxKhb/OMql4CW5yxihpyz6COztXOtSAy8=";
+  vendorHash = "sha256-KttuIe62ZK5y5A5qst3ZTalKtiRhNdhRRt1m4686CLE=";
   subPackages = [ "cmd/web" ];
   env.CGO_ENABLED = "1";
   nativeBuildInputs = [ makeWrapper ];

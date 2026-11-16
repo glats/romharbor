@@ -94,6 +94,10 @@ linters:
             - $gostd
             - app.ddd/internal/adapter$
             - app.ddd/internal/domain
+            - app.ddd/internal/adapter/romsource/archiveorgapi
+            - app.ddd/internal/adapter/romsource/dlarchiveapi
+            - github.com/PuerkitoBio/goquery
+            - github.com/oapi-codegen/runtime
         common:
           list-mode: strict
           files:

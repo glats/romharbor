@@ -141,6 +141,12 @@ See [AGENTS.md](AGENTS.md) for contribution conventions and dependency boundarie
 
 For development checks, use `make test`, `make lint`, and `go test -race ./...`.
 
+Provider API contracts live in `contract/openapi/` and are maintained by ROMHarbor, not the upstream
+providers. Run `make generate-providers` after changing them and `make check-providers` to check
+generated clients without changing files. Handwritten adapters map API responses or goquery-parsed
+HTML to domain games; command/query handlers remain independent of those formats.
+See [provider contracts](docs/provider-contracts.md) for generation and compatibility checks.
+
 ## License
 
 [MIT](LICENSE). Vendored assets retain their own [third-party notices](internal/port/web/static/THIRD_PARTY.md).

@@ -1,0 +1,28 @@
+{
+  "created": 1616004182,
+  "d1": "ia600308.us.archive.org",
+  "dir": "/21/items/example-item",
+  "files": [
+    {
+      "name": "Example Adventure (USA).zip",
+      "source": "original",
+      "format": "ZIP",
+      "size": 40960,
+      "md5": "0123456789abcdef0123456789abcdef",
+      "sha1": "0123456789abcdef0123456789abcdef01234567"
+    },
+    {
+      "name": "Example Puzzle (Europe).zip",
+      "source": "original",
+      "format": "ZIP",
+      "size": 20480,
+      "md5": "fedcba9876543210fedcba9876543210"
+    }
+  ],
+  "files_count": 2,
+  "metadata": {
+    "mediatype": "software",
+    "title": "Example Item"
+  },
+  "server": "ia800308.us.archive.org"
+}

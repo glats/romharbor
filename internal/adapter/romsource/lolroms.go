@@ -1,15 +1,17 @@
 package romsource
 
 import (
+	"bytes"
 	"context"
 	"fmt"
-	"html"
 	"io"
 	"net/http"
 	"net/url"
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/PuerkitoBio/goquery"
 
 	"app.ddd/internal/domain/rom"
 )
@@ -78,9 +80,6 @@ func lolRomsConsolePlatform(console string) (string, bool) {
 	return "", false
 }
 
-// lolRomsLink matches the anchors of the listing rows.
-var lolRomsLink = regexp.MustCompile(`<a[^>]+href="([^"]+)"[^>]*>([^<]*)</a>`)
-
 // lolRomsArchive matches the file extensions the source publishes.
 var lolRomsArchive = regexp.MustCompile(`(?i)\.(7z|chd|zip|7Z)$`)
 
@@ -114,10 +113,18 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 		return nil, err
 	}
 
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	hrefs := doc.Find("a[href]").Map(func(_ int, anchor *goquery.Selection) string {
+		href, _ := anchor.Attr("href")
+		return href
+	})
+
 	seen := map[string]bool{}
 	var games []rom.Game
-	for _, match := range lolRomsLink.FindAllStringSubmatch(string(body), -1) {
-		href := html.UnescapeString(match[1])
+	for _, href := range hrefs {
 		if !lolRomsArchive.MatchString(href) {
 			continue
 		}

@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"app.ddd/internal/adapter/romsource/archiveorgapi"
 	"app.ddd/internal/domain/rom"
 )
 
@@ -61,16 +62,6 @@ func (a *ArchiveOrg) Platforms() []string {
 	return out
 }
 
-// itemFile is one file of an Internet Archive item.
-type itemFile struct {
-	Name   string    `json:"name"`
-	Size   sizeValue `json:"size"`
-	Format string    `json:"format"`
-	MD5    string    `json:"md5"`
-	SHA1   string    `json:"sha1"`
-	Source string    `json:"source"`
-}
-
 // sizeValue reads the file size, which Internet Archive publishes as a number
 // for most files and as a string for some of them.
 type sizeValue int64
@@ -101,11 +92,6 @@ func (s *sizeValue) UnmarshalJSON(data []byte) error {
 	}
 	*s = sizeValue(number)
 	return nil
-}
-
-// itemMetadata is the response of the Internet Archive metadata endpoint.
-type itemMetadata struct {
-	Files []itemFile `json:"files"`
 }
 
 // Search returns the games of the curated sets that match the query.
@@ -153,6 +139,10 @@ func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.
 
 	var games []rom.Game
 	for _, f := range meta.Files {
+		var size sizeValue
+		if err := size.UnmarshalJSON(f.Size); err != nil {
+			return nil, fmt.Errorf("metadata %s: %w", item, legacyFileSizeError(err))
+		}
 		if !rom.IsGameFile(f.Name) {
 			continue
 		}
@@ -167,13 +157,13 @@ func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.
 			Platform: slug,
 			Title:    title,
 			Region:   rom.RegionOf(title),
-			Size:     int64(f.Size),
+			Size:     int64(size),
 			PageURL:  a.BaseURL + "/details/" + item,
 			Files: []rom.File{{
 				Name:    f.Name,
-				Size:    int64(f.Size),
-				MD5:     f.MD5,
-				SHA1:    f.SHA1,
+				Size:    int64(size),
+				MD5:     f.Md5,
+				SHA1:    f.Sha1,
 				URL:     a.BaseURL + "/download/" + item + "/" + url.PathEscape(f.Name),
 				Archive: rom.IsArchive(name),
 			}},
@@ -182,12 +172,12 @@ func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.
 	return games, nil
 }
 
-func (a *ArchiveOrg) metadata(ctx context.Context, item string) (*itemMetadata, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.BaseURL+"/metadata/"+url.PathEscape(item), nil)
+func (a *ArchiveOrg) metadata(ctx context.Context, item string) (*archiveorgapi.ItemMetadata, error) {
+	client, err := archiveorgapi.NewClient(a.BaseURL+"/", archiveorgapi.WithHTTPClient(a.HTTPClient))
 	if err != nil {
 		return nil, err
 	}
-	resp, err := a.HTTPClient.Do(req)
+	resp, err := client.GetItemMetadata(ctx, item)
 	if err != nil {
 		return nil, err
 	}
@@ -195,9 +185,9 @@ func (a *ArchiveOrg) metadata(ctx context.Context, item string) (*itemMetadata, 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("metadata %s: %s", item, resp.Status)
 	}
-	var meta itemMetadata
+	var meta archiveorgapi.ItemMetadata
 	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return nil, fmt.Errorf("metadata %s: %w", item, err)
+		return nil, fmt.Errorf("metadata %s: %w", item, legacyArchiveDecodeError(err, &meta))
 	}
 	return &meta, nil
 }

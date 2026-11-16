@@ -1,0 +1,5 @@
+package: archiveorgapi
+output: internal/adapter/romsource/archiveorgapi/client.gen.go
+generate:
+  client: true
+  models: true

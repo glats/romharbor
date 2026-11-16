@@ -1,4 +1,4 @@
-.PHONY: tidy test format lint mock generate dev-bootstrap dev coverage
+.PHONY: tidy test format lint mock generate generate-providers check-providers dev-bootstrap dev coverage
 
 tidy:
 	@go tool -modfile=./tools/go.tool.mod task tidy
@@ -20,6 +20,12 @@ coverage:
 
 generate:
 	@go tool -modfile=./tools/go.tool.mod task generate
+
+generate-providers:
+	@go tool -modfile=./tools/go.tool.mod task generate-providers
+
+check-providers:
+	@go tool -modfile=./tools/go.tool.mod task check-providers
 
 dev-bootstrap:
 	@go tool -modfile=./tools/go.tool.mod task dev-bootstrap

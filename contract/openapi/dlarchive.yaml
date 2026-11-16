@@ -1,0 +1,126 @@
+openapi: 3.0.3
+info:
+  title: DlArchive file index (consumer-maintained)
+  version: 1.0.0
+  description: |
+    Consumer-maintained contract for the two JSON actions of the dlarchive file
+    index endpoint that ROMHarbor consumes: action=list (paginated index) and
+    action=file-url (direct download URL of one item). No upstream OpenAPI
+    document was found in a bounded search, so these shapes are observed behavior,
+    not an upstream guarantee. Optional fields are marked as such.
+servers:
+  - url: https://uptobox.dlarchive.my.id
+paths:
+  /files_api.php:
+    get:
+      operationId: filesApi
+      summary: List the file index or resolve one file URL
+      description: |
+        One GET operation selected by the action query parameter. The 200 body is
+        one of the list page, the file URL, or a provider error payload with ok false.
+        ROMHarbor reports a file-URL error payload without url as an error.
+      parameters:
+        - name: action
+          in: query
+          required: true
+          description: Selects the response variant.
+          schema:
+            type: string
+            enum:
+              - list
+              - file-url
+        - name: limit
+          in: query
+          required: false
+          description: Page size used with action=list.
+          schema:
+            type: integer
+        - name: offset
+          in: query
+          required: false
+          description: Page offset used with action=list.
+          schema:
+            type: integer
+        - name: id
+          in: query
+          required: false
+          description: Item identifier used with action=file-url.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Response variant selected by action.
+          content:
+            application/json:
+              schema:
+                anyOf:
+                  - $ref: '#/components/schemas/DlArchiveListResponse'
+                  - $ref: '#/components/schemas/DlArchiveFileURLResponse'
+                  - $ref: '#/components/schemas/DlArchiveErrorResponse'
+        default:
+          description: Any other status. The adapter reports the HTTP status only.
+components:
+  schemas:
+    DlArchiveListResponse:
+      type: object
+      description: Page of the file index for action=list.
+      required:
+        - items
+      properties:
+        ok:
+          type: boolean
+          x-go-type-skip-optional-pointer: true
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/DlArchiveItem'
+        total:
+          type: integer
+          description: Number of items in the whole index, used to stop pagination.
+          x-go-type-skip-optional-pointer: true
+    DlArchiveFileURLResponse:
+      type: object
+      description: Direct download URL for action=file-url.
+      required:
+        - url
+      properties:
+        ok:
+          type: boolean
+          description: Checked by the adapter; a false value is reported as an error.
+          x-go-type-skip-optional-pointer: true
+        url:
+          type: string
+    DlArchiveErrorResponse:
+      type: object
+      description: Provider error payload. Its url, when present, is not a download URL.
+      required:
+        - ok
+      properties:
+        ok:
+          type: boolean
+          enum:
+            - false
+          x-go-type-skip-optional-pointer: true
+    DlArchiveItem:
+      type: object
+      description: One file of the index. Every property is optional.
+      properties:
+        id:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        filename:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        size:
+          type: integer
+          format: int64
+          x-go-type-skip-optional-pointer: true
+        mime:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        download_url:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        folder:
+          type: string
+          x-go-type-skip-optional-pointer: true

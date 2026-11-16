@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"app.ddd/internal/adapter/romsource/dlarchiveapi"
 	"app.ddd/internal/domain/rom"
 )
 
@@ -23,18 +24,8 @@ type DlArchive struct {
 	TTL time.Duration
 
 	mu      sync.Mutex
-	index   []dlArchiveItem
+	index   []dlarchiveapi.DlArchiveItem
 	fetched time.Time
-}
-
-// dlArchiveItem is one entry of the dlarchive index.
-type dlArchiveItem struct {
-	ID          string `json:"id"`
-	Filename    string `json:"filename"`
-	Size        int64  `json:"size"`
-	Mime        string `json:"mime"`
-	DownloadURL string `json:"download_url"`
-	Folder      string `json:"folder"`
 }
 
 // NewDlArchive returns the dlarchive source.
@@ -111,17 +102,17 @@ func (d *DlArchive) Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 			continue
 		}
 		games = append(games, rom.Game{
-			ID:       "dlarchive:" + item.ID,
+			ID:       "dlarchive:" + item.Id,
 			Source:   "dlarchive",
 			Platform: slug,
 			Title:    title,
 			Region:   rom.RegionOf(title),
 			Size:     item.Size,
-			PageURL:  d.BaseURL + "/?id=" + url.QueryEscape(item.ID),
+			PageURL:  d.BaseURL + "/?id=" + url.QueryEscape(item.Id),
 			Files: []rom.File{{
 				Name:    item.Filename,
 				Size:    item.Size,
-				URL:     item.DownloadURL,
+				URL:     item.DownloadUrl,
 				Archive: rom.IsArchive(item.Filename),
 			}},
 		})
@@ -130,7 +121,7 @@ func (d *DlArchive) Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 }
 
 // items returns the index, fetching it when it is missing or stale.
-func (d *DlArchive) items(ctx context.Context) ([]dlArchiveItem, error) {
+func (d *DlArchive) items(ctx context.Context) ([]dlarchiveapi.DlArchiveItem, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.index != nil && time.Since(d.fetched) < d.TTL {
@@ -138,17 +129,14 @@ func (d *DlArchive) items(ctx context.Context) ([]dlArchiveItem, error) {
 	}
 
 	var (
-		items  []dlArchiveItem
+		items  []dlarchiveapi.DlArchiveItem
 		offset int
 	)
 	for {
-		var page struct {
-			OK    bool            `json:"ok"`
-			Items []dlArchiveItem `json:"items"`
-			Total int             `json:"total"`
-		}
-		endpoint := fmt.Sprintf("%s/files_api.php?action=list&limit=200&offset=%d", d.BaseURL, offset)
-		if err := d.getJSON(ctx, endpoint, &page); err != nil {
+		limit := 200
+		var page dlarchiveapi.DlArchiveListResponse
+		params := &dlarchiveapi.FilesApiParams{Action: dlarchiveapi.List, Limit: &limit, Offset: &offset}
+		if err := d.filesAPI(ctx, params, &page); err != nil {
 			return nil, err
 		}
 		items = append(items, page.Items...)
@@ -164,27 +152,29 @@ func (d *DlArchive) items(ctx context.Context) ([]dlArchiveItem, error) {
 
 // FileURL resolves the direct download URL of an item.
 func (d *DlArchive) FileURL(ctx context.Context, id string) (string, error) {
-	var answer struct {
-		OK  bool   `json:"ok"`
-		URL string `json:"url"`
-	}
-	endpoint := fmt.Sprintf("%s/files_api.php?action=file-url&id=%s", d.BaseURL, url.QueryEscape(id))
-	if err := d.getJSON(ctx, endpoint, &answer); err != nil {
+	var answer dlarchiveapi.DlArchiveFileURLResponse
+	params := &dlarchiveapi.FilesApiParams{Action: dlarchiveapi.FileUrl, Id: &id}
+	if err := d.filesAPI(ctx, params, &answer); err != nil {
 		return "", err
 	}
-	if !answer.OK || answer.URL == "" {
+	if !answer.Ok || answer.Url == "" {
 		return "", fmt.Errorf("dlarchive: no download URL for %s", id)
 	}
-	return answer.URL, nil
+	return answer.Url, nil
 }
 
-func (d *DlArchive) getJSON(ctx context.Context, endpoint string, target any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+func (d *DlArchive) filesAPI(ctx context.Context, params *dlarchiveapi.FilesApiParams, target any) error {
+	client, err := dlarchiveapi.NewClient(d.BaseURL+"/", dlarchiveapi.WithHTTPClient(d.HTTPClient))
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Accept", "application/json")
-	resp, err := d.HTTPClient.Do(req)
+	var endpoint string
+	capture := func(_ context.Context, req *http.Request) error {
+		req.Header.Set("Accept", "application/json")
+		endpoint = req.URL.String()
+		return nil
+	}
+	resp, err := client.FilesApi(ctx, params, capture)
 	if err != nil {
 		return err
 	}
@@ -192,5 +182,5 @@ func (d *DlArchive) getJSON(ctx context.Context, endpoint string, target any) er
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("dlarchive: %s: %s", path.Base(endpoint), resp.Status)
 	}
-	return json.NewDecoder(resp.Body).Decode(target)
+	return legacyDecodeError(json.NewDecoder(resp.Body).Decode(target))
 }

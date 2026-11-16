@@ -1,0 +1,12 @@
+{
+  "ok": true,
+  "items": [
+    {
+      "id": "example-1",
+      "filename": "Example Adventure (USA).zip",
+      "size": "40960",
+      "folder": "Example_Mirror/Nintendo_Nes"
+    }
+  ],
+  "total": 1
+}

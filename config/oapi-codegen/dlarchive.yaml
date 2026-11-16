@@ -1,0 +1,5 @@
+package: dlarchiveapi
+output: internal/adapter/romsource/dlarchiveapi/client.gen.go
+generate:
+  client: true
+  models: true

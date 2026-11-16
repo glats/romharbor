@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: Internet Archive item metadata (consumer-maintained)
+  version: 1.0.0
+  description: |
+    Consumer-maintained contract for the read endpoint of the Internet Archive
+    Item Metadata API, limited to the fields ROMHarbor consumes. It is not an
+    official Internet Archive specification. Shapes were derived from the official
+    read documentation (https://archive.org/developers/md-read.html) and from
+    observed responses. Optional and heterogeneous fields are marked as such.
+servers:
+  - url: https://archive.org
+paths:
+  /metadata/{identifier}:
+    get:
+      operationId: getItemMetadata
+      summary: Read an item metadata record
+      description: |
+        The identifier is the exact item identifier. The official read documentation
+        (https://archive.org/developers/md-read.html) documents an empty JSON array
+        for an unknown identifier and an error field for other failures. The
+        contract models both 200 variants. ROMHarbor reads only files from the item
+        object and reports the empty-array variant as a decode error, which preserves
+        the baseline behavior. The extended_err parameter is not sent by ROMHarbor.
+      parameters:
+        - name: identifier
+          in: path
+          required: true
+          description: Exact Internet Archive item identifier.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Item metadata record.
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/ItemMetadata'
+                  - type: array
+                    items: {}
+                    maxItems: 0
+        default:
+          description: Any other status. The adapter reports the HTTP status only.
+components:
+  schemas:
+    ItemMetadata:
+      type: object
+      description: Item record. ROMHarbor reads only files; other documented properties are not modeled.
+      properties:
+        files:
+          type: array
+          description: Files of the item. Absent when the item has none.
+          items:
+            $ref: '#/components/schemas/ItemFile'
+          x-go-type-skip-optional-pointer: true
+    ItemFile:
+      type: object
+      description: One file of an item. Every property is optional.
+      properties:
+        name:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        source:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        format:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        size:
+          description: Published as a number for most files and as a string for some files. Null and empty strings are tolerated by the adapter.
+          nullable: true
+          oneOf:
+            - type: integer
+              format: int64
+            - type: string
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
+        md5:
+          type: string
+          x-go-type-skip-optional-pointer: true
+        sha1:
+          type: string
+          x-go-type-skip-optional-pointer: true
