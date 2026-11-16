@@ -21,7 +21,7 @@ import (
 )
 
 func TestUsersOnlyRootKeepsInheritedRedirect(t *testing.T) {
-	handler := web.NewHandler(service.NewApp(appmock.NewUserRepository(t)), web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	handler := newHandler(t, appmock.NewUserRepository(t))
 
 	rec := do(t, handler, http.MethodGet, "/")
 
@@ -61,7 +61,7 @@ func TestCatalogPageKeepsLegacyHeaders(t *testing.T) {
 func TestUsersPagesKeepHTMXVary(t *testing.T) {
 	repo := appmock.NewUserRepository(t)
 	repo.EXPECT().List(mock.Anything).Return(nil, nil).Once()
-	application, _ := service.NewAppWithCatalog(repo, service.CatalogDependencies{})
+	application, _ := service.NewApp(repo, service.CatalogDependencies{})
 	handler := web.NewHandler(application, web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
 
 	rec := do(t, handler, http.MethodGet, "/users")

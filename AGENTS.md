@@ -12,7 +12,7 @@ Keep this application self-contained and domain-focused; add only behavior requi
 - Application: adapter-root contracts, domain and common helpers; no concrete adapter imports.
 - Transport ports: application and domain, with standard-library HTTP/templates/logging.
 - SQLite adapter: adapter-root contracts, domain, bob, opt, dbmate and the SQLite driver.
-- Service: assembles handlers; only `cmd/web` assembles infrastructure and the server.
+- Service: `NewApp` is the single application constructor and assembles all handlers in one application value; do not add catalog-specific application constructors. Only `cmd/web` assembles infrastructure and the server.
 - Expose every application use case, including the catalog, through `Application.Command` or `Application.Query` using the existing handler/decorator contracts. Transport ports must not bypass them through a parallel application service or an `Application.Catalog` field. `internal/service` is composition only.
 - Common helpers: standard library, local trace context and zerolog.
 

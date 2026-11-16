@@ -22,35 +22,27 @@ type CatalogDependencies struct {
 	Logger  *slog.Logger
 }
 
-func NewApp(userRepository adapter.UserRepository) *app.Application {
+func NewApp(userRepository adapter.UserRepository, deps CatalogDependencies) (*app.Application, func(context.Context) error) {
 	metrics := metric.NoOp{}
-
-	return &app.Application{
-		Command: &app.Command{
-			CreateUser: command.NewCreateUserHandler(userRepository, metrics),
-			UpdateUser: command.NewUpdateUserHandler(userRepository, metrics),
-			DeleteUser: command.NewDeleteUserHandler(userRepository, metrics),
-		},
-		Query: &app.Query{
-			ObtainUser: query.NewObtainUserHandler(userRepository, metrics),
-			ListUsers:  query.NewListUsersHandler(userRepository, metrics),
-		},
-	}
-}
-
-func NewAppWithCatalog(userRepository adapter.UserRepository, deps CatalogDependencies) (*app.Application, func(context.Context) error) {
-	metrics := metric.NoOp{}
-	application := NewApp(userRepository)
 	listings := catalog.NewListings(deps.Sources, deps.Cache, deps.TTL)
 	downloads := catalog.NewDownloads(deps.Library, deps.Jobs, deps.Logger)
 
-	application.Command.StartDownload = command.NewStartDownloadHandler(listings, downloads, metrics)
-	application.Query.ListPlatforms = query.NewListPlatformsHandler(listings, metrics)
-	application.Query.ListGames = query.NewListGamesHandler(listings, metrics)
-	application.Query.ObtainGame = query.NewObtainGameHandler(listings, metrics)
-	application.Query.ListJobs = query.NewListJobsHandler(deps.Jobs, metrics)
-	application.Query.ObtainJob = query.NewObtainJobHandler(deps.Jobs, metrics)
-	application.Query.ObtainDestination = query.NewObtainDestinationHandler(deps.Library, metrics)
-
-	return application, downloads.Shutdown
+	return &app.Application{
+		Command: &app.Command{
+			CreateUser:    command.NewCreateUserHandler(userRepository, metrics),
+			UpdateUser:    command.NewUpdateUserHandler(userRepository, metrics),
+			DeleteUser:    command.NewDeleteUserHandler(userRepository, metrics),
+			StartDownload: command.NewStartDownloadHandler(listings, downloads, metrics),
+		},
+		Query: &app.Query{
+			ObtainUser:        query.NewObtainUserHandler(userRepository, metrics),
+			ListUsers:         query.NewListUsersHandler(userRepository, metrics),
+			ListPlatforms:     query.NewListPlatformsHandler(listings, metrics),
+			ListGames:         query.NewListGamesHandler(listings, metrics),
+			ObtainGame:        query.NewObtainGameHandler(listings, metrics),
+			ListJobs:          query.NewListJobsHandler(deps.Jobs, metrics),
+			ObtainJob:         query.NewObtainJobHandler(deps.Jobs, metrics),
+			ObtainDestination: query.NewObtainDestinationHandler(deps.Library, metrics),
+		},
+	}, downloads.Shutdown
 }

@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestCatalogServerLeavesResponsesUncapped(t *testing.T) {
-	application, _ := service.NewAppWithCatalog(nil, service.CatalogDependencies{})
+	application, _ := service.NewApp(nil, service.CatalogDependencies{})
 	server := newHTTPServer(application)
 
 	assert.Zero(t, server.WriteTimeout)
@@ -36,7 +36,9 @@ func TestCatalogServerLeavesResponsesUncapped(t *testing.T) {
 }
 
 func TestUsersOnlyServerKeepsBaseTimeouts(t *testing.T) {
-	server := newHTTPServer(service.NewApp(nil))
+	application, _ := service.NewApp(nil, service.CatalogDependencies{})
+	application.Query.ListPlatforms = nil
+	server := newHTTPServer(application)
 
 	assert.Equal(t, 30*time.Second, server.WriteTimeout)
 }

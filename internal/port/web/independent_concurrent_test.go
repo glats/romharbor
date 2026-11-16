@@ -18,7 +18,7 @@ import (
 func TestIndependentConcurrentStartShutdown(t *testing.T) {
 	for round := 0; round < 10; round++ {
 		jobs := romjobs.New()
-		a, stop := service.NewAppWithCatalog(nil, service.CatalogDependencies{Sources: []adapter.RomSource{&independentSource{}}, Cache: romcache.New(t.TempDir()), Jobs: jobs, Library: &independentLibrary{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		a, stop := service.NewApp(nil, service.CatalogDependencies{Sources: []adapter.RomSource{&independentSource{}}, Cache: romcache.New(t.TempDir()), Jobs: jobs, Library: &independentLibrary{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 		h := web.NewHandler(a)
 		if w := independentRequest(h, "GET", "/api/games?platform=snes", ""); w.Code != 200 {
 			t.Fatal(w.Code)

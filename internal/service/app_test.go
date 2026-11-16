@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,14 +18,37 @@ import (
 	"app.ddd/internal/domain/user"
 )
 
+func TestNewAppIsTheOnlyApplicationConstructor(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "app.go", nil, 0)
+	if !assert.NoError(t, err) {
+		return
+	}
+	for _, declaration := range file.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if ok && strings.HasPrefix(function.Name.Name, "NewApp") {
+			assert.Equal(t, "NewApp", function.Name.Name)
+		}
+	}
+}
+
 func TestNewAppWiresEveryHandler(t *testing.T) {
-	application := NewApp(mock.NewUserRepository(t))
+	application, shutdown := NewApp(mock.NewUserRepository(t), CatalogDependencies{})
 
 	assert.NotNil(t, application.Command.CreateUser)
 	assert.NotNil(t, application.Command.UpdateUser)
 	assert.NotNil(t, application.Command.DeleteUser)
 	assert.NotNil(t, application.Query.ObtainUser)
 	assert.NotNil(t, application.Query.ListUsers)
+	assert.NotNil(t, application.Command.StartDownload)
+	assert.NotNil(t, application.Query.ListPlatforms)
+	assert.NotNil(t, application.Query.ListGames)
+	assert.NotNil(t, application.Query.ObtainGame)
+	assert.NotNil(t, application.Query.ListJobs)
+	assert.NotNil(t, application.Query.ObtainJob)
+	assert.NotNil(t, application.Query.ObtainDestination)
+	if assert.NotNil(t, shutdown) {
+		assert.NoError(t, shutdown(context.Background()))
+	}
 }
 
 func TestApplicationHasNoParallelCatalogService(t *testing.T) {
@@ -37,15 +64,6 @@ func TestApplicationHasNoParallelCatalogService(t *testing.T) {
 	}
 }
 
-func TestNewAppWithCatalogWiresCatalogUseCases(t *testing.T) {
-	application, shutdown := NewAppWithCatalog(mock.NewUserRepository(t), CatalogDependencies{})
-	assert.NotNil(t, shutdown)
-	assert.NotNil(t, application.Command.StartDownload)
-	assert.NotNil(t, application.Query.ListPlatforms)
-	assert.NotNil(t, application.Query.ObtainDestination)
-	assert.Nil(t, NewApp(mock.NewUserRepository(t)).Query.ListPlatforms)
-}
-
 func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
 	ctx := context.Background()
 	ada := user.New(user.WithID("u1"), user.WithName("Ada"), user.WithEmail("ada@example.com"))
@@ -54,7 +72,8 @@ func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
 	repo.EXPECT().Delete(ctx, "u1").Return(nil).Once()
 	repo.EXPECT().List(ctx).Return([]user.User{ada}, nil).Once()
 
-	application := NewApp(repo)
+	application, shutdown := NewApp(repo, CatalogDependencies{})
+	t.Cleanup(func() { assert.NoError(t, shutdown(ctx)) })
 
 	got, err := application.Query.ObtainUser.Handle(ctx, query.ObtainUser{ID: "u1"})
 	assert.NoError(t, err)

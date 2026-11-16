@@ -108,7 +108,7 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	if err != nil {
 		return err
 	}
-	application, shutdownDownloads := service.NewAppWithCatalog(sqlite.NewUserRepository(db), romDeps)
+	application, shutdownDownloads := service.NewApp(sqlite.NewUserRepository(db), romDeps)
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()

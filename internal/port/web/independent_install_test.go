@@ -42,7 +42,7 @@ func TestIndependentRequestCancellationInstall(t *testing.T) {
 	defer upstream.Close()
 	jobs := romjobs.New()
 	root := t.TempDir()
-	a, stop := service.NewAppWithCatalog(nil, service.CatalogDependencies{Sources: []adapter.RomSource{payloadSource{upstream.URL}}, Cache: romcache.New(root + "/cache"), Library: &romlibrary.Library{Root: root + "/roms"}, Jobs: jobs, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	a, stop := service.NewApp(nil, service.CatalogDependencies{Sources: []adapter.RomSource{payloadSource{upstream.URL}}, Cache: romcache.New(root + "/cache"), Library: &romlibrary.Library{Root: root + "/roms"}, Jobs: jobs, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	defer func() { _ = stop(context.Background()) }()
 	h := web.NewHandler(a)
 	ctx, cancel := context.WithCancel(context.Background())

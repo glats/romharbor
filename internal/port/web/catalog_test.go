@@ -62,7 +62,7 @@ func newCatalogHandlerWithLibrary(t *testing.T, cache string, library adapter.Ro
 	t.Helper()
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	application, shutdown := service.NewAppWithCatalog(appmock.NewUserRepository(t), service.CatalogDependencies{
+	application, shutdown := service.NewApp(appmock.NewUserRepository(t), service.CatalogDependencies{
 		Sources: []adapter.RomSource{fixtureSource{games: games}},
 		Cache:   romcache.New(cache),
 		Library: library,

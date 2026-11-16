@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -30,7 +31,10 @@ func newHandler(t *testing.T, repo *appmock.UserRepository, opts ...web.Option) 
 
 	quiet := web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	return web.NewHandler(service.NewApp(repo), append([]web.Option{quiet}, opts...)...)
+	application, shutdown := service.NewApp(repo, service.CatalogDependencies{})
+	application.Query.ListPlatforms = nil
+	t.Cleanup(func() { require.NoError(t, shutdown(context.Background())) })
+	return web.NewHandler(application, append([]web.Option{quiet}, opts...)...)
 }
 
 func fromHTMX(r *http.Request) {
