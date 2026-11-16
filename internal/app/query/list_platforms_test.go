@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/common/metric"
 	"app.ddd/internal/domain/rom"
 )
@@ -38,8 +37,7 @@ func TestListPlatformsCountsEachPlatformListing(t *testing.T) {
 func TestCatalogQueriesReportDecoratorMetrics(t *testing.T) {
 	ctx := context.Background()
 	listings := newListings(rom.Game{ID: "1", Platform: "snes", Title: "Zelda"})
-	jobs := romjobs.New()
-	jobs.Add(rom.Job{ID: "1"})
+	jobs := fakeJobs{jobs: []rom.Job{{ID: "1"}}}
 	library := fakeLibrary{}
 	snes, _ := rom.PlatformBySlug("snes")
 	metrics := &recordingMetrics{}

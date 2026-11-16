@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"sync"
@@ -10,19 +11,19 @@ import (
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
-	"app.ddd/internal/adapter/romdownloads"
-	"app.ddd/internal/adapter/romjobs"
+
 	"app.ddd/internal/adapter/romlistings"
+	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
 )
 
 func TestIndependentConcurrentStartShutdown(t *testing.T) {
 	for round := 0; round < 10; round++ {
-		jobs := romjobs.New()
+		jobs := newJobs(t)
 		library := &independentLibrary{}
 		listings := romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
-		downloads := romdownloads.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		a := service.NewApp(nil, listings, downloads, jobs, library)
 		h := web.NewHandler(a)
 		if w := independentRequest(h, "GET", "/api/games?platform=snes", ""); w.Code != 200 {
@@ -30,13 +31,20 @@ func TestIndependentConcurrentStartShutdown(t *testing.T) {
 		}
 		var wg sync.WaitGroup
 		start := make(chan struct{})
-		codes := make(chan int, 40)
+		type response struct {
+			code int
+			id   string
+		}
+		responses := make(chan response, 40)
 		for i := 0; i < 40; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
 				<-start
-				codes <- independentRequest(h, "POST", "/api/download", `{"id":"ok"}`).Code
+				w := independentRequest(h, "POST", "/api/download", `{"id":"ok"}`)
+				var job rom.Job
+				_ = json.Unmarshal(w.Body.Bytes(), &job)
+				responses <- response{code: w.Code, id: job.ID}
 			}()
 		}
 		close(start)
@@ -47,23 +55,27 @@ func TestIndependentConcurrentStartShutdown(t *testing.T) {
 			t.Fatal(err)
 		}
 		wg.Wait()
-		close(codes)
-		accepted := 0
-		for code := range codes {
-			switch code {
+		close(responses)
+		accepted := map[string]bool{}
+		for r := range responses {
+			switch r.code {
 			case 202:
-				accepted++
+				accepted[r.id] = true
 			case 503:
 			default:
-				t.Fatalf("unexpected status %d", code)
+				t.Fatalf("unexpected status %d", r.code)
 			}
 		}
-		if len(jobs.List()) != accepted {
-			t.Fatalf("accepted=%d stored=%d", accepted, len(jobs.List()))
+		stored := listJobs(t, jobs)
+		if len(stored) != len(accepted) {
+			t.Fatalf("accepted jobs=%d stored=%d", len(accepted), len(stored))
 		}
-		for _, job := range jobs.List() {
-			if job.Status != "done" && job.Status != "failed" {
-				t.Fatalf("unfinished after shutdown: %+v", job)
+		for _, job := range stored {
+			if !accepted[job.ID] {
+				t.Fatalf("stored job %s was never accepted", job.ID)
+			}
+			if job.Status != "done" && job.Status != "queued" {
+				t.Fatalf("job left in %q after shutdown: %+v", job.Status, job)
 			}
 		}
 	}

@@ -7,7 +7,8 @@ into a library organized by platform. Run it on your own server and keep your li
 
 - Browse platforms and search their game listings.
 - View game details, available files, and checksums when provided by the source.
-- Start downloads and follow their progress in the web interface.
+- Start downloads and follow their progress in the web interface. Downloads are queued in the
+  application database, run one at a time, retry failed attempts, and resume after a restart.
 - Save games into platform folders in your library, ready for your own library manager or emulator.
 - Cache listings locally to avoid fetching them on every visit.
 

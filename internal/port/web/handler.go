@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"sync/atomic"
 
 	"app.ddd/internal/app"
 	"app.ddd/internal/app/query"
@@ -31,7 +30,6 @@ type Handler struct {
 	pages        *template.Template
 	errorPages   *template.Template
 	catalogPages *template.Template
-	jobSeq       atomic.Uint64
 }
 
 type Option func(*Handler)

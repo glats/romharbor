@@ -71,6 +71,14 @@ type Listing struct {
 	Games   []Game
 }
 
+// Job statuses.
+const (
+	JobQueued  = "queued"
+	JobRunning = "running"
+	JobDone    = "done"
+	JobFailed  = "failed"
+)
+
 // Job is one running or finished download.
 type Job struct {
 	ID         string    `json:"id"`
@@ -113,4 +121,12 @@ func Page(games []Game, offset, limit int) []Game {
 		games = games[:limit]
 	}
 	return games
+}
+
+// JobClaim is a queued job a worker took ownership of.
+type JobClaim struct {
+	Job     Job
+	Request InstallRequest
+	// Attempt counts the claims of the job, this one included.
+	Attempt int
 }

@@ -20,6 +20,6 @@ func NewListJobsHandler(jobs adapter.RomJobStore, metric decorator.MetricsClient
 	return decorator.ApplyQueryDecorators[ListJobs, []rom.Job](listJobsQuery{jobs: jobs}, metric)
 }
 
-func (q listJobsQuery) Handle(_ context.Context, _ ListJobs) ([]rom.Job, error) {
-	return q.jobs.List(), nil
+func (q listJobsQuery) Handle(ctx context.Context, _ ListJobs) ([]rom.Job, error) {
+	return q.jobs.List(ctx)
 }

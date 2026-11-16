@@ -22,7 +22,6 @@ import (
 	"app.ddd/internal/adapter/config"
 	"app.ddd/internal/adapter/romcache"
 	"app.ddd/internal/adapter/romdownloads"
-	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlibrary"
 	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/adapter/romsource"
@@ -112,9 +111,12 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	}
 	cache := romcache.New(cfg.ROM.Cache)
 	library := &romlibrary.Library{Root: cfg.ROM.Library, HTTPClient: &http.Client{}}
-	jobs := romjobs.New()
+	jobs := sqlite.NewJobStore(db)
 	listings := romlistings.NewListings(sources, cache, cfg.ROM.CacheTTL)
 	downloads := romdownloads.NewDownloads(library, jobs, nil)
+	if err := downloads.Resume(ctx); err != nil {
+		return err
+	}
 	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs, library)
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)

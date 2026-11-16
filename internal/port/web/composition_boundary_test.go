@@ -15,8 +15,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"app.ddd/internal/adapter/romcache"
-	"app.ddd/internal/adapter/romdownloads"
-	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/app/command"
 	appmock "app.ddd/internal/app/mock"
@@ -41,8 +39,8 @@ func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
 	_, err := listings.Games(ctx, "snes", "", 0, 1)
 	require.NoError(t, err)
 	require.NoError(t, cache.Store("snes", rom.Listing{Fetched: time.Now()}))
-	jobs := romjobs.New()
-	downloads := romdownloads.NewDownloads(nil, jobs, nil)
+	jobs := newJobs(t)
+	downloads := newDownloads(t, nil, jobs, nil)
 	require.NoError(t, downloads.Shutdown(ctx))
 	application := service.NewApp(nil, listings, downloads, jobs, nil)
 	games, err := application.Query.ListGames.Handle(ctx, query.ListGames{
@@ -52,13 +50,10 @@ func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
 	require.Equal(t, []rom.Game{game}, games)
 	err = application.Command.StartDownload.Handle(ctx, command.StartDownload{
 		GameID: "warm",
-		NewJobID: func() string {
-			t.Fatal("closed downloads allocated an ID")
-			return ""
-		},
+		Queued: func(rom.Job) { t.Fatal("closed downloads queued a job") },
 	})
 	require.ErrorIs(t, err, rom.ErrShuttingDown)
-	require.Empty(t, jobs.List())
+	require.Empty(t, listJobs(t, jobs))
 }
 
 func TestSharedCompositionServesUsersAndCachedCatalog(t *testing.T) {
@@ -74,9 +69,9 @@ func TestSharedCompositionServesUsersAndCachedCatalog(t *testing.T) {
 	repo := appmock.NewUserRepository(t)
 	repo.On("List", ctx).Return([]user.User{}, nil)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	jobs := romjobs.New()
+	jobs := newJobs(t)
 	listings := romlistings.NewListings(nil, cache, 0)
-	downloads := romdownloads.NewDownloads(nil, jobs, quiet)
+	downloads := newDownloads(t, nil, jobs, quiet)
 	application := service.NewApp(repo, listings, downloads, jobs, nil)
 	t.Cleanup(func() { require.NoError(t, downloads.Shutdown(ctx)) })
 	handler := web.NewHandler(application, web.WithLogger(quiet))

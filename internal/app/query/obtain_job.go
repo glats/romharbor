@@ -9,8 +9,7 @@ import (
 )
 
 type ObtainJob struct {
-	ID     string
-	Queued bool
+	ID string
 }
 
 type ObtainJobHandler decorator.QueryHandler[ObtainJob, rom.Job]
@@ -23,12 +22,11 @@ func NewObtainJobHandler(jobs adapter.RomJobStore, metric decorator.MetricsClien
 	return decorator.ApplyQueryDecorators[ObtainJob, rom.Job](obtainJobQuery{jobs: jobs}, metric)
 }
 
-func (q obtainJobQuery) Handle(_ context.Context, query ObtainJob) (rom.Job, error) {
-	find := q.jobs.Get
-	if query.Queued {
-		find = q.jobs.GetQueued
+func (q obtainJobQuery) Handle(ctx context.Context, query ObtainJob) (rom.Job, error) {
+	job, ok, err := q.jobs.Get(ctx, query.ID)
+	if err != nil {
+		return rom.Job{}, err
 	}
-	job, ok := find(query.ID)
 	if !ok {
 		return rom.Job{}, rom.ErrJobNotFound
 	}

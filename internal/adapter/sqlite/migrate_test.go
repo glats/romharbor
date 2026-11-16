@@ -49,8 +49,8 @@ func TestMigrateCreatesTheSchemaAndIsIdempotent(t *testing.T) {
 	require.NoError(t, Migrate(path))
 	require.NoError(t, Migrate(path))
 
-	assert.Equal(t, []string{"schema_migrations", "users"}, tableNames(t, path))
-	assert.Equal(t, 1, appliedMigrations(t, path))
+	assert.Equal(t, []string{"jobs", "schema_migrations", "users"}, tableNames(t, path))
+	assert.Equal(t, 2, appliedMigrations(t, path))
 }
 
 func TestRollbackRemovesTheLastMigrationAndMigrateRestoresIt(t *testing.T) {
@@ -58,15 +58,16 @@ func TestRollbackRemovesTheLastMigrationAndMigrateRestoresIt(t *testing.T) {
 	require.NoError(t, Migrate(path))
 
 	require.NoError(t, Rollback(path))
-	assert.Equal(t, []string{"schema_migrations"}, tableNames(t, path))
+	assert.Equal(t, []string{"schema_migrations", "users"}, tableNames(t, path))
 
 	require.NoError(t, Migrate(path))
-	assert.Equal(t, []string{"schema_migrations", "users"}, tableNames(t, path))
+	assert.Equal(t, []string{"jobs", "schema_migrations", "users"}, tableNames(t, path))
 }
 
 func TestRollbackFailsWhenNothingIsApplied(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
 	require.NoError(t, Migrate(path))
+	require.NoError(t, Rollback(path))
 	require.NoError(t, Rollback(path))
 
 	assert.Error(t, Rollback(path))

@@ -14,8 +14,6 @@ import (
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
-	"app.ddd/internal/adapter/romdownloads"
-	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlibrary"
 	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/domain/rom"
@@ -42,11 +40,11 @@ func TestIndependentRequestCancellationInstall(t *testing.T) {
 		}
 	}))
 	defer upstream.Close()
-	jobs := romjobs.New()
+	jobs := newJobs(t)
 	root := t.TempDir()
 	library := &romlibrary.Library{Root: root + "/roms"}
 	listings := romlistings.NewListings([]adapter.RomSource{payloadSource{upstream.URL}}, romcache.New(root+"/cache"), 0)
-	downloads := romdownloads.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a := service.NewApp(nil, listings, downloads, jobs, library)
 	stop := downloads.Shutdown
 	defer func() { _ = stop(context.Background()) }()
@@ -62,7 +60,7 @@ func TestIndependentRequestCancellationInstall(t *testing.T) {
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for {
-		job, _ := jobs.Get("1")
+		job := getJob(t, jobs, "1")
 		if job.Status == "done" {
 			b, err := os.ReadFile(job.Path)
 			if err != nil || sha256.Sum256(b) != sha256.Sum256(payload) {

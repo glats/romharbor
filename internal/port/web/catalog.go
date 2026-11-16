@@ -216,13 +216,10 @@ func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	var jobID string
+	var queued rom.Job
 	err := h.app.Command.StartDownload.Handle(r.Context(), command.StartDownload{
-		NewJobID: func() string {
-			jobID = strconv.FormatUint(h.jobSeq.Add(1), 10)
-			return jobID
-		},
 		GameID: body.ID,
+		Queued: func(job rom.Job) { queued = job },
 	})
 	switch {
 	case errors.Is(err, rom.ErrGameNotFound):
@@ -236,12 +233,7 @@ func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	default:
-		job, err := h.app.Query.ObtainJob.Handle(r.Context(), query.ObtainJob{ID: jobID, Queued: true})
-		if err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
-			return
-		}
-		writeJSON(w, http.StatusAccepted, job)
+		writeJSON(w, http.StatusAccepted, queued)
 	}
 }
 

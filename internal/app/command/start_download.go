@@ -9,8 +9,8 @@ import (
 )
 
 type StartDownload struct {
-	NewJobID func() string
-	GameID   string
+	GameID string
+	Queued func(rom.Job)
 }
 
 type StartDownloadHandler decorator.CommandHandler[StartDownload]
@@ -37,5 +37,12 @@ func (c startDownloadCommand) Handle(ctx context.Context, cmd StartDownload) err
 	if !ok {
 		return rom.ErrUnknownPlatform
 	}
-	return c.downloads.Start(game, file, platform, cmd.NewJobID)
+	job, err := c.downloads.Start(ctx, rom.InstallRequest{Game: game, File: file, Platform: platform})
+	if err != nil {
+		return err
+	}
+	if cmd.Queued != nil {
+		cmd.Queued(job)
+	}
+	return nil
 }

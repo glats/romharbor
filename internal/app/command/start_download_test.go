@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,8 +11,8 @@ import (
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romdownloads"
-	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlistings"
+	"app.ddd/internal/adapter/sqlite"
 	"app.ddd/internal/common/metric"
 	"app.ddd/internal/domain/rom"
 )
@@ -59,15 +60,21 @@ func (r *recordingMetrics) Inc(key string, _ int) {
 type downloadFixture struct {
 	listings  *romlistings.Listings
 	downloads *romdownloads.Downloads
-	jobs      adapter.RomJobStore
+	jobs      *sqlite.JobStore
 	library   *blockingLibrary
 }
 
 func newDownloadFixture(t *testing.T, games ...rom.Game) downloadFixture {
 	t.Helper()
 	library := &blockingLibrary{started: make(chan struct{}, 1)}
-	jobs := romjobs.New()
+	path := filepath.Join(t.TempDir(), "app.db")
+	require.NoError(t, sqlite.Migrate(path))
+	db, err := sqlite.Open(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	jobs := sqlite.NewJobStore(db)
 	downloads := romdownloads.NewDownloads(library, jobs, nil)
+	require.NoError(t, downloads.Resume(context.Background()))
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 	return downloadFixture{
 		listings:  romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour),
@@ -86,7 +93,7 @@ func awaitInstall(t *testing.T, library *blockingLibrary) {
 	}
 }
 
-func TestStartDownloadRejectsInvalidGamesBeforeAllocatingAJob(t *testing.T) {
+func TestStartDownloadRejectsInvalidGamesBeforeQueueingAJob(t *testing.T) {
 	snes := rom.Game{ID: "ok", Platform: "snes", Title: "OK", Files: []rom.File{{Name: "OK.sfc", URL: "http://unused.invalid/ok"}}}
 	noFile := rom.Game{ID: "nofile", Platform: "snes", Title: "No file"}
 	tests := []struct {
@@ -100,16 +107,18 @@ func TestStartDownloadRejectsInvalidGamesBeforeAllocatingAJob(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fx := newDownloadFixture(t, snes, noFile)
-			ids := 0
+			queued := 0
 
 			err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
-				GameID:   tt.gameID,
-				NewJobID: func() string { ids++; return "1" },
+				GameID: tt.gameID,
+				Queued: func(rom.Job) { queued++ },
 			})
 
 			require.ErrorIs(t, err, tt.wantErr)
-			assert.Zero(t, ids, "rejected request consumed a job ID")
-			assert.Empty(t, fx.jobs.List())
+			assert.Zero(t, queued, "rejected request reported a queued job")
+			jobs, listErr := fx.jobs.List(context.Background())
+			require.NoError(t, listErr)
+			assert.Empty(t, jobs)
 		})
 	}
 }
@@ -119,51 +128,49 @@ func TestStartDownloadRejectsGamesOnUnknownPlatforms(t *testing.T) {
 	fx := newDownloadFixture(t, game)
 	_, err := fx.listings.Games(context.Background(), "", "nope", 0, 10)
 	require.NoError(t, err)
-	ids := 0
+	queued := 0
 
 	err = NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
-		GameID:   "odd",
-		NewJobID: func() string { ids++; return "1" },
+		GameID: "odd",
+		Queued: func(rom.Job) { queued++ },
 	})
 
 	require.ErrorIs(t, err, rom.ErrUnknownPlatform)
-	assert.Zero(t, ids)
+	assert.Zero(t, queued)
 }
 
 func TestStartDownloadQueuesAValidGame(t *testing.T) {
 	game := rom.Game{ID: "g", Platform: "snes", Title: "G", Files: []rom.File{{Name: "G.sfc", Size: 7, URL: "http://unused.invalid/g"}}}
 	fx := newDownloadFixture(t, game)
-	ids := 0
+	var job rom.Job
 
 	err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
-		GameID:   "g",
-		NewJobID: func() string { ids++; return "1" },
+		GameID: "g",
+		Queued: func(queued rom.Job) { job = queued },
 	})
 
 	require.NoError(t, err)
-	assert.Equal(t, 1, ids)
-	job, ok := fx.jobs.GetQueued("1")
-	require.True(t, ok)
-	assert.Equal(t, "queued", job.Status)
+	assert.Equal(t, "1", job.ID)
+	assert.Equal(t, rom.JobQueued, job.Status)
 	assert.Equal(t, "g", job.GameID)
 	assert.Equal(t, "G", job.Title)
 	assert.Equal(t, int64(7), job.Total)
 	awaitInstall(t, fx.library)
 }
 
-func TestStartDownloadRejectsNewDownloadsAfterShutdownWithoutAllocatingAJob(t *testing.T) {
+func TestStartDownloadRejectsNewDownloadsAfterShutdownWithoutQueueingAJob(t *testing.T) {
 	game := rom.Game{ID: "g", Platform: "snes", Title: "G", Files: []rom.File{{Name: "G.sfc", URL: "http://unused.invalid/g"}}}
 	fx := newDownloadFixture(t, game)
 	require.NoError(t, fx.downloads.Shutdown(context.Background()))
-	ids := 0
+	queued := 0
 
 	err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
-		GameID:   "g",
-		NewJobID: func() string { ids++; return "1" },
+		GameID: "g",
+		Queued: func(rom.Job) { queued++ },
 	})
 
 	require.ErrorIs(t, err, rom.ErrShuttingDown)
-	assert.Zero(t, ids)
+	assert.Zero(t, queued)
 }
 
 func TestStartDownloadReportsDecoratorMetrics(t *testing.T) {
@@ -172,8 +179,8 @@ func TestStartDownloadReportsDecoratorMetrics(t *testing.T) {
 	metrics := &recordingMetrics{}
 	handler := NewStartDownloadHandler(fx.listings, fx.downloads, metrics)
 
-	require.ErrorIs(t, handler.Handle(context.Background(), StartDownload{GameID: "missing", NewJobID: func() string { return "x" }}), rom.ErrGameNotFound)
-	require.NoError(t, handler.Handle(context.Background(), StartDownload{GameID: "g", NewJobID: func() string { return "1" }}))
+	require.ErrorIs(t, handler.Handle(context.Background(), StartDownload{GameID: "missing"}), rom.ErrGameNotFound)
+	require.NoError(t, handler.Handle(context.Background(), StartDownload{GameID: "g"}))
 
 	assert.Contains(t, metrics.keys, "commands.startdownload.failure")
 	assert.Contains(t, metrics.keys, "commands.startdownload.success")

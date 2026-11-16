@@ -18,8 +18,6 @@ import (
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
-	"app.ddd/internal/adapter/romdownloads"
-	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
@@ -69,10 +67,10 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 	}
 	cache := romcache.New(filepath.Join(root, "cache"))
 	source := &independentSource{}
-	jobs := romjobs.New()
+	jobs := newJobs(t)
 	library := &independentLibrary{}
 	listings := romlistings.NewListings([]adapter.RomSource{source}, cache, 0)
-	downloads := romdownloads.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a := service.NewApp(nil, listings, downloads, jobs, library)
 	stop := downloads.Shutdown
 	t.Cleanup(func() { _ = stop(context.Background()) })
@@ -117,7 +115,7 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 		if w.Code != c.status || w.Body.String() != c.want {
 			t.Fatal(w.Code, w.Body.String())
 		}
-		if len(jobs.List()) != 0 {
+		if len(listJobs(t, jobs)) != 0 {
 			t.Fatal("rejection stored job")
 		}
 	}
@@ -132,7 +130,7 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 		}
 		deadline := time.Now().Add(time.Second)
 		for {
-			j, _ := jobs.Get(queued.ID)
+			j := getJob(t, jobs, queued.ID)
 			if j.Status == "done" {
 				break
 			}
@@ -148,24 +146,24 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 			t.Fatal(poll.Body.String())
 		}
 	}
-	if j, _ := jobs.Get("1"); j.GameID != "ok" {
+	if j := getJob(t, jobs, "1"); j.GameID != "ok" {
 		t.Fatal("rejections consumed IDs")
 	}
 	if err := stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	w := independentRequest(h, "POST", "/api/download", `{"id":"ok"}`)
-	if w.Code != 503 || w.Body.String() != "{\"error\":\"service is shutting down\"}\n" || len(jobs.List()) != 30 {
+	if w.Code != 503 || w.Body.String() != "{\"error\":\"service is shutting down\"}\n" || len(listJobs(t, jobs)) != 30 {
 		t.Fatal(w.Code, w.Body.String())
 	}
 }
 func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
 
 func TestIndependentShutdownCancellation(t *testing.T) {
-	jobs := romjobs.New()
+	jobs := newJobs(t)
 	library := &independentLibrary{entered: make(chan struct{}), block: true}
 	listings := romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
-	downloads := romdownloads.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a := service.NewApp(nil, listings, downloads, jobs, library)
 	stop := downloads.Shutdown
 	h := web.NewHandler(a)
@@ -179,9 +177,8 @@ func TestIndependentShutdownCancellation(t *testing.T) {
 	if err := stop(ctx); err != nil {
 		t.Fatal(err)
 	}
-	j, _ := jobs.Get("1")
-	q, _ := jobs.GetQueued("1")
-	if j.Status != "failed" || j.Error != "context canceled" || j.Finished.IsZero() || q.Status != "queued" || q.Downloaded != 0 || q.Total != 9 {
-		t.Fatal(j, q)
+	j := getJob(t, jobs, "1")
+	if j.Status != "queued" || j.Error != "" || !j.Finished.IsZero() || j.Total != 9 {
+		t.Fatal("an interrupted download must stay resumable", j)
 	}
 }
