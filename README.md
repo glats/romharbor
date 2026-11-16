@@ -1,227 +1,145 @@
 # ROMHarbor
 
-A self-hosted hub for discovering games, organizing a ROM library by platform, and preparing
-selected games for compatible computers and handhelds.
-
-## Project status
-
-This repository is the standalone ROMHarbor application. It starts from
-[glats/web-base](https://github.com/glats/web-base) at commit `32edc0324734c35e37e61eb8f4ed7995aa2a79db`
-and carries the ROM catalog extracted from the legacy `romcatalog` service: the platform picker, search,
-game detail pages, download jobs and platform folders. The inherited `/users` page remains as a runnable
-example. Device transfers and new download providers are not part of this application.
-No ROMs, BIOS, keys, private deployment configuration or library data are included.
-
-ROMHarbor is licensed under MIT. Vendored assets retain their own notices in
-[`THIRD_PARTY.md`](internal/port/web/static/THIRD_PARTY.md).
-
-## Community installation
-
-ROMHarbor provides a standalone flake with a package and NixOS module, plus a Dockerfile
-and a persistent Compose setup. See [installation and releases](docs/distribution.md)
-for version pinning, service options, storage permissions and GHCR publication.
-
-Quick local container start: `docker compose up --build -d`, then open
-`http://localhost:8080/users`. The catalog root fetches upstream metadata on a cold cache.
-Use the catalog only for content you are authorized to download. Registries distribute
-the application image, not ROMs or a hosted library.
-
-## Architecture and direction
-
-Keep one Go application with domain-focused commands and queries, following the inherited
-dependency rules below. The intended areas are catalog discovery, library inventory and download
-jobs; destination compatibility and copying selected files are later capabilities. Do not add
-microservices or duplicate an existing library gallery merely to introduce layers.
-
-The following sections describe the inherited foundation and its example user-maintenance flow.
-
-A standalone Go web application with domain-focused commands and queries, an htmx user maintainer and SQLite
-persistence. SQL migrations, templates and static assets are embedded in the executable. There is no Node build
-step or CDN requirement.
-
-The conceptual architecture reference is [Go With The Domain](https://threedots.tech/go-with-the-domain/).
-
-## Requirements
-
-Go 1.25 or newer, **CGO enabled and a C compiler (`gcc`)**: dbmate's SQLite driver is `mattn/go-sqlite3`. The first
-build compiles SQLite and takes one to two minutes; later builds are cached.
-
-## Run
-
-```
-make dev-bootstrap   # copies env.dist to .env when it does not exist
-make dev             # go run ./cmd/web, then open http://localhost:8080
-```
-
-### Docker
-
-SQLite runs inside the application; no Compose stack or separate database container is needed.
-
-```sh
-docker build -t romharbor:local .
-docker run --rm --name romharbor --stop-timeout 35 \
-  -p 127.0.0.1:8080:8080 \
-  --mount type=volume,source=romharbor-data,target=/data \
-  romharbor:local
-```
-
-Open `http://localhost:8080`. Change the left-hand `8080` to publish another host port. SQLite persists in
-the named `romharbor-data` volume at `/data/app.db`, even after the container is removed. Deleting that volume
-deletes the database. The port is published only on `127.0.0.1`.
-
-The image defaults to JSON logs and no demo users. Add `--env DB_SEED_ENABLED=true` before the image name
-to load example users; `--env LOG_PRETTY=true` enables readable terminal logs. Migrations always run before
-optional seeds. Host `.env` files are not loaded automatically or copied into the image.
-
-The multi-stage Dockerfile builds with Go 1.25.8 and CGO, then runs as UID/GID `10001:10001` in Debian slim
-with compatible glibc. A new named volume inherits the writable `/data` directory from the image; an existing
-volume must already be writable for that UID/GID. The image contains the binary and its embedded templates/assets,
-not local databases, Git history or development tools. The 35-second stop timeout covers the application's
-30-second graceful shutdown.
-
-| Variable | Default | Meaning |
-|----------|---------|---------|
-| `HTTP_ADDR` | `:8080` | listen address |
-| `DATABASE_PATH` | `./data/app.db` | SQLite file; created and migrated at startup. Must not contain `?`, `#` or `%` |
-| `LOG_LEVEL` | `info` | minimum level for zerolog and slog (decorators log at `debug`) |
-| `LOG_PRETTY` | `false` | readable terminal output when true; JSON when false. `env.dist` sets true for local work |
-| `DB_SEED_ENABLED` | `false` | opt in to example users after migrations, before serving |
-| `ROM_LIBRARY_PATH` | `./data/roms` | library root; each platform downloads into its folder (`genesis` into `megadrive`) |
-| `ROM_CACHE_PATH` | `./data/romcache` | directory of cached platform listings |
-| `ROM_SOURCES` | `archive.org` | comma-separated sources: `archive.org` (default), `dlarchive`, `lolroms` (opt-in) |
-| `ROM_CACHE_TTL` | `24h` | how long a cached listing stays fresh |
-
-The command-line flags `--listen`, `--library`, `--cache`, `--sources` and `--ttl` override `HTTP_ADDR`,
-`ROM_LIBRARY_PATH`, `ROM_CACHE_PATH`, `ROM_SOURCES` and `ROM_CACHE_TTL` for one run. Installing archives needs
-the `7z` binary on the host for `.7z` files; the Docker image installs `p7zip-full` and CA certificates.
-
-The opt-in `lolroms` source requires search text; results remain available for detail and download
-until the application restarts and do not replace cached platform listings. Installs are serialized
-within the running application to protect resumable staging files; queued jobs remain cancelable.
-
-Cloud deployments should use `LOG_PRETTY=false`. Existing `.env` files are not overwritten by `make dev-bootstrap`;
-add new variables to them explicitly when updating this base.
+A self-hosted web application for browsing ROM catalogs, finding games, and downloading them
+into a library organized by platform. Run it on your own server and keep your library on your own storage.
 
 ## What it does
 
-The root page is the ROM catalog. The inherited `/users` page, with a form to add users and an editable table,
-remains as an example. Everything goes through application use cases.
+- Browse platforms and search their game listings.
+- View game details, available files, and checksums when provided by the source.
+- Start downloads and follow their progress in the web interface.
+- Save games into platform folders in your library, ready for your own library manager or emulator.
+- Cache listings locally to avoid fetching them on every visit.
 
-| Request | Answer |
-|---------|--------|
-| `GET /` | the ROM catalog: platform picker and downloads (users-only construction has no root route) |
-| `GET /platform/{slug}?q=` | platform page with search; shows the library folder downloads land in |
-| `GET /game/{base64id}` | game detail page with checksums and a download button |
-| `GET /api/platforms`, `/api/games`, `/api/game`, `/api/jobs`, `/api/job` | JSON listings and job state |
-| `POST /api/download` | `202` with the job; `404` unknown game, `400` game without a file |
-| `GET /users` | full page, or only `#users-section` when the request comes from htmx |
-| `GET /users/{id}/edit` | the section with that row in edit mode |
-| `POST /users` | `201` and the section; `422` invalid, `409` email in use (the section with the message) |
-| `PUT /users/{id}` | `200` and the section; `422`/`409` as above |
-| `DELETE /users/{id}` | `200` and the section |
-| `404` / `500` | a message retargeted to `#flash` (`HX-Retarget`, `HX-Reswap`); the cause is only logged |
+Archive.org is the default source. `dlarchive` and `lolroms` are opt-in; `lolroms` requires search text.
+Source availability and metadata depend on the upstream provider.
 
-Writes are protected by `http.CrossOriginProtection`; bodies are limited to 1 MiB. The maintainer needs htmx; there is
-no non-JavaScript fallback.
+ROMHarbor does not include ROMs, BIOS files, keys, an emulator, or device-transfer tools.
+Only download content you are authorized to use. It is an acquisition tool, not a replacement
+for a library gallery such as RomM.
 
-## Notes and limits
+## Installation
 
-- Email uniqueness is case-sensitive (`A@x.io` and `a@x.io` are different users) because the domain does not
-  normalize emails.
-- `http.CrossOriginProtection` lets through only same-origin requests and requests without browser headers;
-  `Sec-Fetch-Site: same-site` is rejected on writes.
-- `make dev` is for local work: Ctrl-C in the terminal stops the server gracefully, but signalling only the `make`
-  process leaves the server running. Under a process manager run the binary (`go build -o web ./cmd/web`).
-- Responses to `GET /users` and `GET /users/{id}/edit` carry `Vary: HX-Request`, since the same URL answers a full
-  page or a fragment.
+| Method | Best for | Platforms |
+| --- | --- | --- |
+| [Container image](#container-image) | Running a released version with Docker | Linux AMD64 |
+| [Docker Compose](#docker-compose) | Persistent, repeatable container setup | Linux AMD64 with the released image |
+| [Nix / NixOS](#nix--nixos) | Reproducible package or declarative system service | Linux x86_64 and ARM64 |
+| [From source](#from-source) | Development or a custom build | Go 1.25+, CGO, and a C compiler |
 
-## Layout
+### Container image
 
-```
-cmd/web/                    config → logging → migrate → open → optional seeds → app → HTTP → graceful shutdown
-internal/
-├── domain/ app/ service/ common/ port/port.go     domain, use cases, assembly and local helpers
-├── adapter/
-│   ├── repository.go       repository interfaces (contracts only)
-│   ├── config/             environment (caarlos0/env)
-│   ├── romcache/ romjobs/ romlibrary/ romsource/   ROM listing cache, job store, library installs, sources
-│   └── sqlite/             connection, dbmate migrations, bob repository
-│       ├── migrations/     SQL files with -- migrate:up / -- migrate:down (embedded)
-│       ├── seeds/          ordered, repeatable SQL files (embedded; opt-in example users)
-│       └── models/ dberrors/ dbinfo/    generated by bob (*.bob.go, never edited by hand)
-└── port/web/               handlers, templates/ and static/ (htmx, Pico.css) embedded in the binary
-config/                     mockery.yaml, bobgen.yaml
+The published image is available at `ghcr.io/glats/romharbor:0.1.0`. No registry login is needed.
+
+```sh
+docker run -d --name romharbor --stop-timeout 35 \
+  -p 127.0.0.1:8080:8080 \
+  --mount type=volume,source=romharbor-data,target=/data \
+  ghcr.io/glats/romharbor:0.1.0
 ```
 
-## Dependency rule
+Open **http://localhost:8080** for the catalog. The named volume keeps your database, listing cache,
+and downloaded games across container replacements. Do not delete it when updating.
 
-| Package | May import |
-|---------|------------|
-| `internal/domain` | standard library |
-| `internal/app` | adapter-root contracts, `domain`, `common` |
-| `internal/adapter` (root) | standard library and `domain` only |
-| `internal/port` (incl. `web`) | `app` root, `app/command`, `app/query`, `domain` (standard library only otherwise) |
-| `internal/service` | adapter-root contracts, `app`, `domain`, `common` |
-| `internal/adapter/sqlite` | adapter-root contracts, `domain`, bob, opt, dbmate, the SQLite driver |
-| `internal/adapter/config` | the env parser |
-| `internal/common` | other `common` packages and `zerolog` |
+The image includes `7z` and CA certificates and runs as UID/GID `10001:10001`.
+Existing volumes or bind mounts must be writable by that identity. Pin a version or digest;
+the release workflow does not publish a `latest` tag.
 
-Concrete adapters and transport ports never import each other; only `cmd/` assembles. Application imports only
-the contracts-only adapter root, not concrete adapter subpackages. `task lint` enforces this with `depguard`.
+### Docker Compose
 
-## Application contracts
+```sh
+git clone --branch v0.1.0 https://github.com/glats/romharbor.git
+cd romharbor
+export ROMHARBOR_IMAGE=ghcr.io/glats/romharbor:0.1.0
+docker compose pull
+docker compose up --no-build -d
+```
 
-Repository interfaces live in `internal/adapter/repository.go`, separate from domain entities. Application code
-depends only on that contracts package, not concrete database implementations. Local helpers provide handler
-logging, metrics and trace contexts without requiring an external metrics or tracing service.
-Process logging is configured in `internal/common/logger`; `cmd/web` only passes the parsed level, pretty flag
-and output writer at startup. The logger does not depend on the environment adapter.
+Compose uses the same persistent volume and loopback-only port, with a read-only root filesystem
+and restricted container privileges. To build a local image instead, omit `ROMHARBOR_IMAGE` and run
+`docker compose up --build -d` from a checkout.
 
-## Database
+Podman can build the Dockerfile, but its runtime behavior has not been verified.
 
-- Add a migration: create `internal/adapter/sqlite/migrations/<UTC timestamp>_<name>.sql` with `-- migrate:up` and
-  `-- migrate:down`, then run `make generate` and commit the regenerated models. `make generate` applies the
-  migrations to a throwaway database with dbmate and runs `bobgen-sqlite` (`config/bobgen.yaml`).
-- Migrations are applied at startup by `sqlite.Migrate`. `sqlite.Rollback` rolls back the latest one.
-  They always run regardless of environment; only pending versions apply. For multi-replica deployments, arrange
-  a single migration execution rather than assuming concurrent startup migrations are safe.
-- Bob names unique-constraint errors after the schema (`dberrors.UserErrors.ErrUniquePkMainUsers`,
-  `ErrUniqueSqliteAutoindexUsers2`). If a schema change renames them, `user_repository.go` stops compiling; update
-  `translateUniqueViolation`.
+### Nix / NixOS
 
-### Seeds
+Run the released package without installing it into a profile:
 
-Set `DB_SEED_ENABLED=true` in `.env` to populate Ada Lovelace (`ada@example.com`) and Grace Hopper
-(`grace@example.com`). It is off by default, including in `env.dist`. No schema-migration switch is needed.
+```sh
+nix run github:glats/romharbor/v0.1.0 -- --listen 127.0.0.1:8080
+```
 
-The reusable runner is `sqlite.Seed(ctx, db)`. Add datasets as `internal/adapter/sqlite/seeds/NN_name.sql`:
-files run in filename order, in one transaction. Use explicit columns and `ON CONFLICT DO NOTHING`, as in
-`01_users.sql`, so repeated runs preserve existing records. Each new dataset needs a repeatability test;
-the runner does not make arbitrary SQL idempotent. Seeds have no version ledger: enabled datasets run on
-every startup. Deleted demo users are recreated when seeding remains enabled. Disable it after populating
-the database if that is not wanted. Required production reference data is separate from these demo users.
+The package includes `7z`. Its database, cache, and library default to `./data/` in the working directory.
+Nix packages are built in CI on native x86_64 and ARM64 Linux runners; Darwin is not a flake target.
 
-## Adding an aggregate with its page
+For a declarative NixOS service, add `github:glats/romharbor/v0.1.0` to your flake inputs,
+import its `nixosModules.default`, and set `services.romharbor.enable = true`.
+The module provides options for the listen address, library location, cache, database, sources,
+and service identity. See the [module example and option reference](docs/distribution.md#nixos-module).
 
-In a project derived from this template: (1) the aggregate and its errors in `internal/domain/<name>`; (2) its port
-in `internal/adapter/repository.go`; (3) commands and queries in `internal/app`, then `make mock`; (4) wire them in
-`service.NewApp`; (5) a migration, `make generate` and a repository in `internal/adapter/sqlite`; (6) handlers and
-templates in `internal/port/web`, reusing the single-section pattern.
+### From source
 
-## Swapping SQLite
+Install Go 1.25 or newer, a C compiler, and `7z` for `.7z` extraction. SQLite requires CGO;
+templates and static assets are embedded, so no Node.js build or external database is needed.
 
-Implement `adapter.UserRepository` in a new `internal/adapter/<tech>` package. Missing records return
-`user.NotFoundError`; duplicate IDs/emails return `user.AlreadyExistsError`. Preserve contexts and errors.
-The `ListUsers` handler sorts by name and ID, so repository order is unrestricted. Add a depguard rule and change
-the wiring in `cmd/web`; domain code does not change.
+```sh
+git clone https://github.com/glats/romharbor.git
+cd romharbor
+make dev-bootstrap
+make dev
+```
 
-## Tasks
+Open **http://localhost:8080**. `make dev-bootstrap` creates `.env` from `env.dist` without replacing
+an existing file. For a standalone executable, run `go build -o romharbor ./cmd/web`.
 
-`make tidy | format | lint | mock | generate | test | coverage | dev-bootstrap | dev` (the same names with
-`task`). Tools run through `go tool -modfile=./tools/go.tool.mod`. Coverage target: above 80% overall and 100% on
-command and query handlers.
+## Configuration and storage
 
-## Third-party files
+| Variable | Default outside containers | Purpose |
+| --- | --- | --- |
+| `HTTP_ADDR` | `:8080` | Listen address |
+| `ROM_LIBRARY_PATH` | `./data/roms` | Downloaded games, grouped by platform |
+| `ROM_CACHE_PATH` | `./data/romcache` | Cached source listings |
+| `ROM_SOURCES` | `archive.org` | Comma-separated enabled sources |
+| `ROM_CACHE_TTL` | `24h` | Listing cache freshness |
+| `DATABASE_PATH` | `./data/app.db` | SQLite database |
 
-htmx 4.0.0 (0BSD) and Pico.css 2.1.1 (MIT) are vendored in `internal/port/web/static`; versions, checksums and
-licenses are in `THIRD_PARTY.md` there. See [ADR 0001](docs/adr/0001-web-base-decisions.md) for the decisions.
+The flags `--listen`, `--library`, `--cache`, `--sources`, and `--ttl` override the corresponding
+environment settings for one run. Container storage is configured under `/data`.
+See [`env.dist`](env.dist) for logging and other application settings.
+
+Back up persistent storage before upgrades, and run only one instance against a library.
+For shared storage, provision writable directories and mount them before starting the service.
+
+**Keep ROMHarbor behind a trusted authenticated reverse proxy before exposing it beyond localhost.**
+It does not configure authentication or TLS for you. The inherited `/users` example is still present;
+cross-origin write protection is not authentication.
+
+See [installation and releases](docs/distribution.md) for storage permissions, service options,
+upgrades, container builds, and publishing details.
+
+## Project structure
+
+One Go application, with commands for actions and queries for reads:
+
+```text
+cmd/web/             Application startup, infrastructure wiring, and HTTP server
+internal/domain/     ROM and user domain types
+internal/app/        Command/query handlers and catalog coordination
+internal/adapter/    Source providers, listing cache, download jobs, library, and SQLite
+internal/port/web/   HTTP handlers, embedded templates, and static assets
+internal/service/    Application assembly
+nix/                 Package, NixOS module, and integration checks
+tests/               Container smoke test
+.github/workflows/   Verification and versioned GHCR publishing
+```
+
+HTTP handlers use `Application.Command` and `Application.Query`; concrete adapters are wired at startup.
+See [AGENTS.md](AGENTS.md) for contribution conventions and dependency boundaries.
+
+For development checks, use `make test`, `make lint`, and `go test -race ./...`.
+
+## License
+
+[MIT](LICENSE). Vendored assets retain their own [third-party notices](internal/port/web/static/THIRD_PARTY.md).
+ROMHarbor began from [glats/web-base](https://github.com/glats/web-base);
+[ADR 0001](docs/adr/0001-web-base-decisions.md) records the foundation decisions.
