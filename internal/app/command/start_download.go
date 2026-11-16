@@ -3,7 +3,7 @@ package command
 import (
 	"context"
 
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter"
 	"app.ddd/internal/common/decorator"
 	"app.ddd/internal/domain/rom"
 )
@@ -16,11 +16,11 @@ type StartDownload struct {
 type StartDownloadHandler decorator.CommandHandler[StartDownload]
 
 type startDownloadCommand struct {
-	listings  *catalog.Listings
-	downloads *catalog.Downloads
+	listings  adapter.RomListings
+	downloads adapter.RomDownloads
 }
 
-func NewStartDownloadHandler(listings *catalog.Listings, downloads *catalog.Downloads, metric decorator.MetricsClient) StartDownloadHandler {
+func NewStartDownloadHandler(listings adapter.RomListings, downloads adapter.RomDownloads, metric decorator.MetricsClient) StartDownloadHandler {
 	return decorator.ApplyCommandDecorators[StartDownload](startDownloadCommand{listings: listings, downloads: downloads}, metric)
 }
 

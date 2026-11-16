@@ -236,3 +236,8 @@ func PlatformByDir(dir string) (Platform, bool) {
 	}
 	return Platform{}, false
 }
+
+type PlatformCount struct {
+	Platform
+	Count int
+}

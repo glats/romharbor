@@ -10,6 +10,7 @@ Keep this application self-contained and domain-focused; add only behavior requi
 - Domain: standard library only.
 - Adapter root: repository contracts and domain types only.
 - Application: adapter-root contracts, domain and common helpers; no concrete adapter imports.
+- Application: only `command/` and `query/` handlers plus the `Application` value; catalog behavior with state or I/O (source merging, listing cache, background downloads) sits behind the adapter-root ports `RomListings` and `RomDownloads`, implemented by the `romlistings` and `romdownloads` adapters. There is no `app/catalog` package.
 - Transport ports: application and domain, with standard-library HTTP/templates/logging.
 - SQLite adapter: adapter-root contracts, domain, bob, opt, dbmate and the SQLite driver.
 - Service: `NewApp` is the single application constructor and assembles all handlers in one application value; do not add catalog-specific application constructors. Only `cmd/web` assembles infrastructure and the server.

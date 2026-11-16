@@ -15,8 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"app.ddd/internal/adapter/romcache"
+	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romjobs"
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/app/command"
 	appmock "app.ddd/internal/app/mock"
 	"app.ddd/internal/app/query"
@@ -36,12 +37,12 @@ func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
 	require.NoError(t, cache.Store("snes", rom.Listing{
 		Fetched: time.Now(), Games: []rom.Game{game},
 	}))
-	listings := catalog.NewListings(nil, cache, 0)
+	listings := romlistings.NewListings(nil, cache, 0)
 	_, err := listings.Games(ctx, "snes", "", 0, 1)
 	require.NoError(t, err)
 	require.NoError(t, cache.Store("snes", rom.Listing{Fetched: time.Now()}))
 	jobs := romjobs.New()
-	downloads := catalog.NewDownloads(nil, jobs, nil)
+	downloads := romdownloads.NewDownloads(nil, jobs, nil)
 	require.NoError(t, downloads.Shutdown(ctx))
 	application := service.NewApp(nil, listings, downloads, jobs, nil)
 	games, err := application.Query.ListGames.Handle(ctx, query.ListGames{
@@ -74,8 +75,8 @@ func TestSharedCompositionServesUsersAndCachedCatalog(t *testing.T) {
 	repo.On("List", ctx).Return([]user.User{}, nil)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	jobs := romjobs.New()
-	listings := catalog.NewListings(nil, cache, 0)
-	downloads := catalog.NewDownloads(nil, jobs, quiet)
+	listings := romlistings.NewListings(nil, cache, 0)
+	downloads := romdownloads.NewDownloads(nil, jobs, quiet)
 	application := service.NewApp(repo, listings, downloads, jobs, nil)
 	t.Cleanup(func() { require.NoError(t, downloads.Shutdown(ctx)) })
 	handler := web.NewHandler(application, web.WithLogger(quiet))

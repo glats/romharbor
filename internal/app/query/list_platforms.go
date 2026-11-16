@@ -3,22 +3,23 @@ package query
 import (
 	"context"
 
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter"
 	"app.ddd/internal/common/decorator"
+	"app.ddd/internal/domain/rom"
 )
 
 type ListPlatforms struct{}
 
-type ListPlatformsHandler decorator.QueryHandler[ListPlatforms, []catalog.PlatformCount]
+type ListPlatformsHandler decorator.QueryHandler[ListPlatforms, []rom.PlatformCount]
 
 type listPlatformsQuery struct {
-	listings *catalog.Listings
+	listings adapter.RomListings
 }
 
-func NewListPlatformsHandler(listings *catalog.Listings, metric decorator.MetricsClient) ListPlatformsHandler {
-	return decorator.ApplyQueryDecorators[ListPlatforms, []catalog.PlatformCount](listPlatformsQuery{listings: listings}, metric)
+func NewListPlatformsHandler(listings adapter.RomListings, metric decorator.MetricsClient) ListPlatformsHandler {
+	return decorator.ApplyQueryDecorators[ListPlatforms, []rom.PlatformCount](listPlatformsQuery{listings: listings}, metric)
 }
 
-func (q listPlatformsQuery) Handle(ctx context.Context, _ ListPlatforms) ([]catalog.PlatformCount, error) {
+func (q listPlatformsQuery) Handle(ctx context.Context, _ ListPlatforms) ([]rom.PlatformCount, error) {
 	return q.listings.PlatformCounts(ctx), nil
 }

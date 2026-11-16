@@ -1,4 +1,4 @@
-package catalog
+package romlistings
 
 import (
 	"context"
@@ -40,20 +40,6 @@ func (failingStoreCache) Load(string) (rom.Listing, error) {
 	return rom.Listing{}, errors.New("missing")
 }
 func (failingStoreCache) Store(string, rom.Listing) error { return errors.New("disk full") }
-
-type blockingLibrary struct {
-	started chan struct{}
-}
-
-func (b *blockingLibrary) PlatformDir(p rom.Platform) (string, error) {
-	return "/unused/" + p.Slug, nil
-}
-
-func (b *blockingLibrary) Install(ctx context.Context, _ rom.InstallRequest, _ func(int64, int64)) (rom.InstallResult, error) {
-	close(b.started)
-	<-ctx.Done()
-	return rom.InstallResult{}, ctx.Err()
-}
 
 type gameSource struct {
 	games []rom.Game

@@ -1,7 +1,6 @@
 package app
 
 import (
-	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/query"
 	"app.ddd/internal/common/decorator"
@@ -24,7 +23,7 @@ type Command struct {
 type Query struct {
 	ObtainUser        decorator.QueryHandler[query.ObtainUser, user.User]
 	ListUsers         decorator.QueryHandler[query.ListUsers, []user.User]
-	ListPlatforms     decorator.QueryHandler[query.ListPlatforms, []catalog.PlatformCount]
+	ListPlatforms     decorator.QueryHandler[query.ListPlatforms, []rom.PlatformCount]
 	ListGames         decorator.QueryHandler[query.ListGames, []rom.Game]
 	ObtainGame        decorator.QueryHandler[query.ObtainGame, rom.Game]
 	ListJobs          decorator.QueryHandler[query.ListJobs, []rom.Job]

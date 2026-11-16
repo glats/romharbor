@@ -10,8 +10,9 @@ import (
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
+	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romjobs"
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
 )
@@ -20,8 +21,8 @@ func TestIndependentConcurrentStartShutdown(t *testing.T) {
 	for round := 0; round < 10; round++ {
 		jobs := romjobs.New()
 		library := &independentLibrary{}
-		listings := catalog.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
-		downloads := catalog.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		listings := romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
+		downloads := romdownloads.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 		a := service.NewApp(nil, listings, downloads, jobs, library)
 		h := web.NewHandler(a)
 		if w := independentRequest(h, "GET", "/api/games?platform=snes", ""); w.Code != 200 {

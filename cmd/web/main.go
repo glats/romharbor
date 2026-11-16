@@ -21,12 +21,13 @@ import (
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/config"
 	"app.ddd/internal/adapter/romcache"
+	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlibrary"
+	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/adapter/romsource"
 	"app.ddd/internal/adapter/sqlite"
 	"app.ddd/internal/app"
-	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/common/logger"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
@@ -112,8 +113,8 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	cache := romcache.New(cfg.ROM.Cache)
 	library := &romlibrary.Library{Root: cfg.ROM.Library, HTTPClient: &http.Client{}}
 	jobs := romjobs.New()
-	listings := catalog.NewListings(sources, cache, cfg.ROM.CacheTTL)
-	downloads := catalog.NewDownloads(library, jobs, nil)
+	listings := romlistings.NewListings(sources, cache, cfg.ROM.CacheTTL)
+	downloads := romdownloads.NewDownloads(library, jobs, nil)
 	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs, library)
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)

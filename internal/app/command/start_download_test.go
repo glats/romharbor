@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"app.ddd/internal/adapter"
+	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romjobs"
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/common/metric"
 	"app.ddd/internal/domain/rom"
 )
@@ -56,8 +57,8 @@ func (r *recordingMetrics) Inc(key string, _ int) {
 }
 
 type downloadFixture struct {
-	listings  *catalog.Listings
-	downloads *catalog.Downloads
+	listings  *romlistings.Listings
+	downloads *romdownloads.Downloads
 	jobs      adapter.RomJobStore
 	library   *blockingLibrary
 }
@@ -66,10 +67,10 @@ func newDownloadFixture(t *testing.T, games ...rom.Game) downloadFixture {
 	t.Helper()
 	library := &blockingLibrary{started: make(chan struct{}, 1)}
 	jobs := romjobs.New()
-	downloads := catalog.NewDownloads(library, jobs, nil)
+	downloads := romdownloads.NewDownloads(library, jobs, nil)
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 	return downloadFixture{
-		listings:  catalog.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour),
+		listings:  romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour),
 		downloads: downloads,
 		jobs:      jobs,
 		library:   library,

@@ -86,7 +86,9 @@ linters:
           list-mode: strict
           files:
             - "**/internal/adapter/romcache/**"
+            - "**/internal/adapter/romdownloads/**"
             - "**/internal/adapter/romjobs/**"
+            - "**/internal/adapter/romlistings/**"
             - "**/internal/adapter/romlibrary/**"
             - "**/internal/adapter/romsource/**"
             - "!$test"

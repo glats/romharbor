@@ -3,7 +3,7 @@ package query
 import (
 	"context"
 
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter"
 	"app.ddd/internal/common/decorator"
 	"app.ddd/internal/domain/rom"
 )
@@ -18,10 +18,10 @@ type ListGames struct {
 type ListGamesHandler decorator.QueryHandler[ListGames, []rom.Game]
 
 type listGamesQuery struct {
-	listings *catalog.Listings
+	listings adapter.RomListings
 }
 
-func NewListGamesHandler(listings *catalog.Listings, metric decorator.MetricsClient) ListGamesHandler {
+func NewListGamesHandler(listings adapter.RomListings, metric decorator.MetricsClient) ListGamesHandler {
 	return decorator.ApplyQueryDecorators[ListGames, []rom.Game](listGamesQuery{listings: listings}, metric)
 }
 

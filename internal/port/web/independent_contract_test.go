@@ -18,8 +18,9 @@ import (
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
+	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romjobs"
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
@@ -70,8 +71,8 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 	source := &independentSource{}
 	jobs := romjobs.New()
 	library := &independentLibrary{}
-	listings := catalog.NewListings([]adapter.RomSource{source}, cache, 0)
-	downloads := catalog.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	listings := romlistings.NewListings([]adapter.RomSource{source}, cache, 0)
+	downloads := romdownloads.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a := service.NewApp(nil, listings, downloads, jobs, library)
 	stop := downloads.Shutdown
 	t.Cleanup(func() { _ = stop(context.Background()) })
@@ -163,8 +164,8 @@ func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
 func TestIndependentShutdownCancellation(t *testing.T) {
 	jobs := romjobs.New()
 	library := &independentLibrary{entered: make(chan struct{}), block: true}
-	listings := catalog.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
-	downloads := catalog.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	listings := romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
+	downloads := romdownloads.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a := service.NewApp(nil, listings, downloads, jobs, library)
 	stop := downloads.Shutdown
 	h := web.NewHandler(a)

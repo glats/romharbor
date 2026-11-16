@@ -3,13 +3,12 @@ package service
 import (
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/app"
-	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/query"
 	"app.ddd/internal/common/metric"
 )
 
-func NewApp(userRepository adapter.UserRepository, listings *catalog.Listings, downloads *catalog.Downloads, jobs adapter.RomJobStore, library adapter.RomLibrary) *app.Application {
+func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings, downloads adapter.RomDownloads, jobs adapter.RomJobStore, library adapter.RomLibrary) *app.Application {
 	metrics := metric.NoOp{}
 
 	return &app.Application{

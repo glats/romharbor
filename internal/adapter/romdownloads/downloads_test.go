@@ -1,4 +1,4 @@
-package catalog
+package romdownloads
 
 import (
 	"context"

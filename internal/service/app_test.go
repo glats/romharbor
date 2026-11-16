@@ -12,8 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"app.ddd/internal/adapter"
+	"app.ddd/internal/adapter/romdownloads"
+	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/app"
-	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/mock"
 	"app.ddd/internal/app/query"
@@ -37,12 +38,12 @@ func TestNewAppOnlyReturnsApplication(t *testing.T) {
 	constructor := reflect.TypeOf(NewApp)
 	assert.Equal(t, 1, constructor.NumOut())
 	assert.Equal(t, reflect.TypeFor[*app.Application](), constructor.Out(0))
-	assert.Equal(t, reflect.TypeFor[func(adapter.UserRepository, *catalog.Listings, *catalog.Downloads, adapter.RomJobStore, adapter.RomLibrary) *app.Application](), constructor)
+	assert.Equal(t, reflect.TypeFor[func(adapter.UserRepository, adapter.RomListings, adapter.RomDownloads, adapter.RomJobStore, adapter.RomLibrary) *app.Application](), constructor)
 }
 
 func TestNewAppWiresEveryHandler(t *testing.T) {
-	downloads := catalog.NewDownloads(nil, nil, nil)
-	application := NewApp(mock.NewUserRepository(t), catalog.NewListings(nil, nil, 0), downloads, nil, nil)
+	downloads := romdownloads.NewDownloads(nil, nil, nil)
+	application := NewApp(mock.NewUserRepository(t), romlistings.NewListings(nil, nil, 0), downloads, nil, nil)
 	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(context.Background())) })
 
 	assert.NotNil(t, application.Command.CreateUser)
@@ -80,8 +81,8 @@ func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
 	repo.EXPECT().Delete(ctx, "u1").Return(nil).Once()
 	repo.EXPECT().List(ctx).Return([]user.User{ada}, nil).Once()
 
-	downloads := catalog.NewDownloads(nil, nil, nil)
-	application := NewApp(repo, catalog.NewListings(nil, nil, 0), downloads, nil, nil)
+	downloads := romdownloads.NewDownloads(nil, nil, nil)
+	application := NewApp(repo, romlistings.NewListings(nil, nil, 0), downloads, nil, nil)
 	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(ctx)) })
 
 	got, err := application.Query.ObtainUser.Handle(ctx, query.ObtainUser{ID: "u1"})

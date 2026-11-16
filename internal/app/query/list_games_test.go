@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"app.ddd/internal/adapter"
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/common/metric"
 	"app.ddd/internal/domain/rom"
 )
@@ -37,8 +37,8 @@ type noCache struct{}
 func (noCache) Load(string) (rom.Listing, error) { return rom.Listing{}, errors.New("missing") }
 func (noCache) Store(string, rom.Listing) error  { return nil }
 
-func newListings(games ...rom.Game) *catalog.Listings {
-	return catalog.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour)
+func newListings(games ...rom.Game) *romlistings.Listings {
+	return romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour)
 }
 
 func TestListGamesPagesTheListingAndFiltersByText(t *testing.T) {

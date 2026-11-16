@@ -1,4 +1,4 @@
-package catalog
+package romlistings
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/domain/rom"
 )
+
+const DefaultCacheTTL = 24 * time.Hour
 
 type Listings struct {
 	registry *registry
@@ -35,14 +37,14 @@ func NewListings(sources []adapter.RomSource, cache adapter.RomListingCache, ttl
 	}
 }
 
-func (l *Listings) PlatformCounts(ctx context.Context) []PlatformCount {
-	out := []PlatformCount{}
+func (l *Listings) PlatformCounts(ctx context.Context) []rom.PlatformCount {
+	out := []rom.PlatformCount{}
 	for _, p := range rom.Platforms() {
 		count, err := l.Count(ctx, p.Slug)
 		if err != nil {
 			continue
 		}
-		out = append(out, PlatformCount{Platform: p, Count: count})
+		out = append(out, rom.PlatformCount{Platform: p, Count: count})
 	}
 	return out
 }

@@ -23,9 +23,10 @@ import (
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
+	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlibrary"
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/adapter/romlistings"
 	appmock "app.ddd/internal/app/mock"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
@@ -64,8 +65,8 @@ func newCatalogHandlerWithLibrary(t *testing.T, cache string, library adapter.Ro
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	jobs := romjobs.New()
-	listings := catalog.NewListings([]adapter.RomSource{fixtureSource{games: games}}, romcache.New(cache), time.Hour)
-	downloads := catalog.NewDownloads(library, jobs, quiet)
+	listings := romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, romcache.New(cache), time.Hour)
+	downloads := romdownloads.NewDownloads(library, jobs, quiet)
 	application := service.NewApp(appmock.NewUserRepository(t), listings, downloads, jobs, library)
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 

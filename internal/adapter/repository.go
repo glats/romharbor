@@ -39,3 +39,13 @@ type RomJobStore interface {
 	Update(id string, change func(*rom.Job))
 	List() []rom.Job
 }
+
+type RomListings interface {
+	PlatformCounts(ctx context.Context) []rom.PlatformCount
+	Games(ctx context.Context, platform, text string, offset, limit int) ([]rom.Game, error)
+	Game(ctx context.Context, id string) (rom.Game, bool, error)
+}
+
+type RomDownloads interface {
+	Start(game rom.Game, file rom.File, platform rom.Platform, newJobID func() string) error
+}
