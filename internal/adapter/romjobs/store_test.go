@@ -23,6 +23,23 @@ func TestAddAndGetReturnSnapshots(t *testing.T) {
 	}
 }
 
+func TestGetQueuedKeepsTheInitialSnapshot(t *testing.T) {
+	store := New()
+	store.Add(rom.Job{ID: "1", Status: "queued", Total: 10})
+	store.Update("1", func(j *rom.Job) {
+		j.Status = "done"
+		j.Downloaded = 10
+	})
+
+	queued, ok := store.GetQueued("1")
+	if !ok || queued.Status != "queued" || queued.Downloaded != 0 || queued.Total != 10 {
+		t.Fatalf("GetQueued() = (%+v, %v), want the initial queued snapshot", queued, ok)
+	}
+	if _, ok := store.GetQueued("missing"); ok {
+		t.Error("GetQueued() found a job that was never added")
+	}
+}
+
 func TestUpdateIsVisibleOnlyThroughSnapshots(t *testing.T) {
 	store := New()
 	store.Add(rom.Job{ID: "1", Status: "queued"})

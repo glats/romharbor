@@ -13,6 +13,7 @@ Keep this application self-contained and domain-focused; add only behavior requi
 - Transport ports: application and domain, with standard-library HTTP/templates/logging.
 - SQLite adapter: adapter-root contracts, domain, bob, opt, dbmate and the SQLite driver.
 - Service: assembles handlers; only `cmd/web` assembles infrastructure and the server.
+- Expose every application use case, including the catalog, through `Application.Command` or `Application.Query` using the existing handler/decorator contracts. Transport ports must not bypass them through a parallel application service or an `Application.Catalog` field. `internal/service` is composition only.
 - Common helpers: standard library, local trace context and zerolog.
 
 Depguard enforces these boundaries. Repository interfaces belong in `internal/adapter/repository.go`.

@@ -2,6 +2,7 @@ package romcache
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -23,7 +24,11 @@ func New(dir string) *Cache {
 }
 
 func (c *Cache) Load(platform string) (rom.Listing, error) {
-	data, err := os.ReadFile(c.path(platform))
+	path, err := c.path(platform)
+	if err != nil {
+		return rom.Listing{}, err
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return rom.Listing{}, err
 	}
@@ -35,6 +40,10 @@ func (c *Cache) Load(platform string) (rom.Listing, error) {
 }
 
 func (c *Cache) Store(platform string, listing rom.Listing) error {
+	path, err := c.path(platform)
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(c.dir, 0o755); err != nil {
 		return err
 	}
@@ -42,13 +51,16 @@ func (c *Cache) Store(platform string, listing rom.Listing) error {
 	if err != nil {
 		return err
 	}
-	tmp := c.path(platform) + ".tmp"
+	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, c.path(platform))
+	return os.Rename(tmp, path)
 }
 
-func (c *Cache) path(platform string) string {
-	return filepath.Join(c.dir, platform+".json")
+func (c *Cache) path(platform string) (string, error) {
+	if _, ok := rom.PlatformBySlug(platform); platform != "" && !ok {
+		return "", fmt.Errorf("unknown cache platform %q", platform)
+	}
+	return filepath.Join(c.dir, platform+".json"), nil
 }

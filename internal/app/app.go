@@ -5,22 +5,29 @@ import (
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/query"
 	"app.ddd/internal/common/decorator"
+	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/domain/user"
 )
 
 type Application struct {
 	Command *Command
 	Query   *Query
-	Catalog *catalog.Service
 }
 
 type Command struct {
-	CreateUser decorator.CommandHandler[command.CreateUser]
-	UpdateUser decorator.CommandHandler[command.UpdateUser]
-	DeleteUser decorator.CommandHandler[command.DeleteUser]
+	CreateUser    decorator.CommandHandler[command.CreateUser]
+	UpdateUser    decorator.CommandHandler[command.UpdateUser]
+	DeleteUser    decorator.CommandHandler[command.DeleteUser]
+	StartDownload decorator.CommandHandler[command.StartDownload]
 }
 
 type Query struct {
-	ObtainUser decorator.QueryHandler[query.ObtainUser, user.User]
-	ListUsers  decorator.QueryHandler[query.ListUsers, []user.User]
+	ObtainUser        decorator.QueryHandler[query.ObtainUser, user.User]
+	ListUsers         decorator.QueryHandler[query.ListUsers, []user.User]
+	ListPlatforms     decorator.QueryHandler[query.ListPlatforms, []catalog.PlatformCount]
+	ListGames         decorator.QueryHandler[query.ListGames, []rom.Game]
+	ObtainGame        decorator.QueryHandler[query.ObtainGame, rom.Game]
+	ListJobs          decorator.QueryHandler[query.ListJobs, []rom.Job]
+	ObtainJob         decorator.QueryHandler[query.ObtainJob, rom.Job]
+	ObtainDestination decorator.QueryHandler[query.ObtainDestination, string]
 }

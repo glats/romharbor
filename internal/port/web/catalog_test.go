@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +25,6 @@ import (
 	"app.ddd/internal/adapter/romcache"
 	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlibrary"
-	"app.ddd/internal/app/catalog"
 	appmock "app.ddd/internal/app/mock"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
@@ -50,19 +50,57 @@ func (f fixtureSource) Search(_ context.Context, q rom.Query) ([]rom.Game, error
 
 func newCatalogHandler(t *testing.T, library string, games ...rom.Game) http.Handler {
 	t.Helper()
+	return newCatalogHandlerWithCache(t, t.TempDir(), library, games...)
+}
+
+func newCatalogHandlerWithCache(t *testing.T, cache, library string, games ...rom.Game) http.Handler {
+	t.Helper()
+	return newCatalogHandlerWithLibrary(t, cache, &romlibrary.Library{Root: library}, games...)
+}
+
+func newCatalogHandlerWithLibrary(t *testing.T, cache string, library adapter.RomLibrary, games ...rom.Game) http.Handler {
+	t.Helper()
 
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	application := service.NewAppWithCatalog(appmock.NewUserRepository(t), catalog.Dependencies{
+	application, shutdown := service.NewAppWithCatalog(appmock.NewUserRepository(t), service.CatalogDependencies{
 		Sources: []adapter.RomSource{fixtureSource{games: games}},
-		Cache:   romcache.New(t.TempDir()),
-		Library: &romlibrary.Library{Root: library},
+		Cache:   romcache.New(cache),
+		Library: library,
 		Jobs:    romjobs.New(),
 		TTL:     time.Hour,
 		Logger:  quiet,
 	})
-	t.Cleanup(func() { _ = application.Catalog.Shutdown(context.Background()) })
+	t.Cleanup(func() { _ = shutdown(context.Background()) })
 
 	return web.NewHandler(application, web.WithLogger(quiet))
+}
+
+func TestGamesRejectsUnknownPlatformsWithoutCacheAccess(t *testing.T) {
+	root := t.TempDir()
+	cache := filepath.Join(root, "cache")
+	outside := filepath.Join(root, "neighbor.json")
+	before := []byte(`{"fetched":"2099-01-01T00:00:00Z","games":[{"ID":"private"}]}`)
+	require.NoError(t, os.WriteFile(outside, before, 0o600))
+	h := newCatalogHandlerWithCache(t, cache, filepath.Join(root, "roms"))
+	for _, platform := range []string{"../neighbor", "../created", "nested/../../neighbor", `..\neighbor`, "unknown"} {
+		for _, query := range []string{"", "mario"} {
+			t.Run(platform+"/"+query, func(t *testing.T) {
+				values := url.Values{"platform": {platform}, "q": {query}}
+				rec := do(t, h, http.MethodGet, "/api/games?"+values.Encode())
+				require.Equal(t, http.StatusBadRequest, rec.Code)
+				require.JSONEq(t, `{"error":"unknown platform"}`, rec.Body.String())
+				after, err := os.ReadFile(outside)
+				require.NoError(t, err)
+				require.Equal(t, before, after)
+				entries, err := os.ReadDir(root)
+				require.NoError(t, err)
+				require.Len(t, entries, 1)
+			})
+		}
+	}
+	for _, platform := range []string{"", "snes"} {
+		require.Equal(t, http.StatusOK, do(t, h, http.MethodGet, "/api/games?platform="+platform).Code)
+	}
 }
 
 func snesGame(id, title string, file rom.File) rom.Game {

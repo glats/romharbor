@@ -43,7 +43,9 @@ linters:
           allow:
             - $gostd
             - app.ddd/internal/domain
-            - app.ddd/internal/app
+            - app.ddd/internal/app$
+            - app.ddd/internal/app/command
+            - app.ddd/internal/app/query
             - app.ddd/internal/port
         service:
           list-mode: strict

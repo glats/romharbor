@@ -7,12 +7,13 @@ import (
 )
 
 type Store struct {
-	mu   sync.Mutex
-	jobs map[string]*rom.Job
+	mu     sync.Mutex
+	jobs   map[string]*rom.Job
+	queued map[string]rom.Job
 }
 
 func New() *Store {
-	return &Store{jobs: map[string]*rom.Job{}}
+	return &Store{jobs: map[string]*rom.Job{}, queued: map[string]rom.Job{}}
 }
 
 func (s *Store) Add(job rom.Job) rom.Job {
@@ -20,6 +21,7 @@ func (s *Store) Add(job rom.Job) rom.Job {
 	defer s.mu.Unlock()
 	stored := job
 	s.jobs[stored.ID] = &stored
+	s.queued[stored.ID] = job
 	return stored
 }
 
@@ -31,6 +33,13 @@ func (s *Store) Get(id string) (rom.Job, bool) {
 		return rom.Job{}, false
 	}
 	return *job, true
+}
+
+func (s *Store) GetQueued(id string) (rom.Job, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	job, ok := s.queued[id]
+	return job, ok
 }
 
 func (s *Store) Update(id string, change func(*rom.Job)) {

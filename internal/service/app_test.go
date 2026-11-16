@@ -2,11 +2,12 @@ package service
 
 import (
 	"context"
+	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/app"
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/mock"
 	"app.ddd/internal/app/query"
@@ -23,9 +24,26 @@ func TestNewAppWiresEveryHandler(t *testing.T) {
 	assert.NotNil(t, application.Query.ListUsers)
 }
 
-func TestNewAppWithCatalogAttachesCatalogService(t *testing.T) {
-	assert.Nil(t, NewApp(mock.NewUserRepository(t)).Catalog)
-	assert.NotNil(t, NewAppWithCatalog(mock.NewUserRepository(t), catalog.Dependencies{}).Catalog)
+func TestApplicationHasNoParallelCatalogService(t *testing.T) {
+	_, found := reflect.TypeOf(app.Application{}).FieldByName("Catalog")
+	assert.False(t, found, "catalog use cases must be reached through Command and Query")
+	for _, name := range []string{"StartDownload"} {
+		_, ok := reflect.TypeOf(app.Command{}).FieldByName(name)
+		assert.True(t, ok, "Command."+name)
+	}
+	for _, name := range []string{"ListPlatforms", "ListGames", "ObtainGame", "ListJobs", "ObtainJob", "ObtainDestination"} {
+		_, ok := reflect.TypeOf(app.Query{}).FieldByName(name)
+		assert.True(t, ok, "Query."+name)
+	}
+}
+
+func TestNewAppWithCatalogWiresCatalogUseCases(t *testing.T) {
+	application, shutdown := NewAppWithCatalog(mock.NewUserRepository(t), CatalogDependencies{})
+	assert.NotNil(t, shutdown)
+	assert.NotNil(t, application.Command.StartDownload)
+	assert.NotNil(t, application.Query.ListPlatforms)
+	assert.NotNil(t, application.Query.ObtainDestination)
+	assert.Nil(t, NewApp(mock.NewUserRepository(t)).Query.ListPlatforms)
 }
 
 func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {

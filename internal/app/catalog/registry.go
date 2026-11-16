@@ -3,7 +3,6 @@ package catalog
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/domain/rom"
@@ -15,15 +14,6 @@ type registry struct {
 
 func newRegistry(sources []adapter.RomSource) *registry {
 	return &registry{sources: sources}
-}
-
-func (r *registry) names() []string {
-	out := make([]string, 0, len(r.sources))
-	for _, s := range r.sources {
-		out = append(out, s.Name())
-	}
-	sort.Strings(out)
-	return out
 }
 
 // search queries every source that serves the platform and merges the

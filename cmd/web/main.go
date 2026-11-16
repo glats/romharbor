@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -25,7 +26,6 @@ import (
 	"app.ddd/internal/adapter/romsource"
 	"app.ddd/internal/adapter/sqlite"
 	"app.ddd/internal/app"
-	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/common/logger"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
@@ -108,14 +108,14 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	if err != nil {
 		return err
 	}
-	application := service.NewAppWithCatalog(sqlite.NewUserRepository(db), romDeps)
+	application, shutdownDownloads := service.NewAppWithCatalog(sqlite.NewUserRepository(db), romDeps)
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()
-		return application.Catalog.Shutdown(shutdownCtx)
+		return shutdownDownloads(shutdownCtx)
 	}
 	defer func() { _ = stopDownloads() }()
-	log.Info().Strs("sources", application.Catalog.SourceNames()).Msg("ROM sources ready")
+	log.Info().Strs("sources", sourceNames(romDeps.Sources)).Msg("ROM sources ready")
 
 	listener, err := net.Listen("tcp", cfg.HTTP.Addr)
 	if err != nil {
@@ -156,24 +156,33 @@ func newHTTPServer(application *app.Application) *http.Server {
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}
-	if application.Catalog != nil {
+	if application.Query.ListPlatforms != nil {
 		server.WriteTimeout = 0
 	}
 	return server
 }
 
-func romDependencies(cfg config.ROMConfig) (catalog.Dependencies, error) {
+func romDependencies(cfg config.ROMConfig) (service.CatalogDependencies, error) {
 	sources, err := buildSources(cfg.Sources)
 	if err != nil {
-		return catalog.Dependencies{}, err
+		return service.CatalogDependencies{}, err
 	}
-	return catalog.Dependencies{
+	return service.CatalogDependencies{
 		Sources: sources,
 		Cache:   romcache.New(cfg.Cache),
 		Library: &romlibrary.Library{Root: cfg.Library, HTTPClient: &http.Client{}},
 		Jobs:    romjobs.New(),
 		TTL:     cfg.CacheTTL,
 	}, nil
+}
+
+func sourceNames(sources []adapter.RomSource) []string {
+	names := make([]string, 0, len(sources))
+	for _, source := range sources {
+		names = append(names, source.Name())
+	}
+	sort.Strings(names)
+	return names
 }
 
 func buildSources(list string) ([]adapter.RomSource, error) {

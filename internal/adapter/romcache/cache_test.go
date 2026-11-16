@@ -1,6 +1,7 @@
 package romcache
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -50,5 +51,31 @@ func TestCacheKeepsLegacyListingFormat(t *testing.T) {
 func TestCacheLoadMissingFileFails(t *testing.T) {
 	if _, err := New(t.TempDir()).Load("snes"); err == nil {
 		t.Fatal("Load() error = nil for a missing listing")
+	}
+}
+
+func TestCacheRejectsPathsOutsideItsDirectory(t *testing.T) {
+	root := t.TempDir()
+	outside := filepath.Join(root, "neighbor.json")
+	before := []byte(`{"fetched":"2026-11-14T10:00:00Z","games":[{"ID":"private"}]}`)
+	if err := os.WriteFile(outside, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := New(filepath.Join(root, "cache"))
+	for _, key := range []string{"../neighbor", "nested/../../neighbor", `..\neighbor`, ".", ".."} {
+		t.Run(key, func(t *testing.T) {
+			if got, err := c.Load(key); err == nil {
+				t.Errorf("Load(%q) = %+v without rejection", key, got)
+			}
+			if err := c.Store(key, rom.Listing{}); err == nil {
+				t.Errorf("Store(%q) succeeded", key)
+			}
+			if got, err := os.ReadFile(outside); err != nil || !bytes.Equal(got, before) {
+				t.Fatalf("neighbor changed: %q, %v", got, err)
+			}
+			if _, err := os.Stat(filepath.Join(root, "cache")); !os.IsNotExist(err) {
+				t.Errorf("rejection created cache state: %v", err)
+			}
+		})
 	}
 }

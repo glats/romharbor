@@ -2,6 +2,7 @@ package web_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -13,8 +14,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"app.ddd/internal/app/catalog"
 	appmock "app.ddd/internal/app/mock"
+	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
 )
@@ -60,7 +61,8 @@ func TestCatalogPageKeepsLegacyHeaders(t *testing.T) {
 func TestUsersPagesKeepHTMXVary(t *testing.T) {
 	repo := appmock.NewUserRepository(t)
 	repo.EXPECT().List(mock.Anything).Return(nil, nil).Once()
-	handler := web.NewHandler(service.NewAppWithCatalog(repo, catalog.Dependencies{}), web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
+	application, _ := service.NewAppWithCatalog(repo, service.CatalogDependencies{})
+	handler := web.NewHandler(application, web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
 
 	rec := do(t, handler, http.MethodGet, "/users")
 
@@ -75,6 +77,32 @@ type failingWriter struct {
 func (f *failingWriter) Header() http.Header       { return f.header }
 func (f *failingWriter) WriteHeader(int)           {}
 func (f *failingWriter) Write([]byte) (int, error) { return 0, errors.New("sink closed") }
+
+type instantLibrary struct{}
+
+func (instantLibrary) PlatformDir(p rom.Platform) (string, error) { return "/unused/" + p.Slug, nil }
+
+func (instantLibrary) Install(_ context.Context, _ rom.InstallRequest, progress func(int64, int64)) (rom.InstallResult, error) {
+	progress(42, 42)
+	return rom.InstallResult{Path: "/unused/Instant.sfc", Size: 42}, nil
+}
+
+func TestAcceptedDownloadReturnsTheQueuedSnapshotWhenTheWorkerFinishesFirst(t *testing.T) {
+	game := snesGame("fixture:instant", "Instant", rom.File{Name: "Instant.sfc", Size: 42})
+	handler := newCatalogHandlerWithLibrary(t, t.TempDir(), instantLibrary{}, game)
+
+	rec := postDownload(t, handler, "fixture:instant")
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	accepted := decodeJSON(t, rec)
+	assert.Equal(t, "queued", accepted["status"])
+	assert.Equal(t, float64(0), accepted["downloaded"])
+	assert.Equal(t, float64(42), accepted["total"])
+	assert.NotContains(t, accepted, "path")
+	assert.NotContains(t, accepted, "error")
+	assert.Equal(t, "0001-01-01T00:00:00Z", accepted["finished"])
+	waitForJob(t, handler, "1", "done")
+}
 
 func TestCatalogJSONEncodeFailureIsLogged(t *testing.T) {
 	var logs bytes.Buffer

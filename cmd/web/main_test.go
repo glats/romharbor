@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"app.ddd/internal/adapter/config"
-	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/service"
 )
 
@@ -29,7 +28,8 @@ func TestMain(m *testing.M) {
 }
 
 func TestCatalogServerLeavesResponsesUncapped(t *testing.T) {
-	server := newHTTPServer(service.NewAppWithCatalog(nil, catalog.Dependencies{}))
+	application, _ := service.NewAppWithCatalog(nil, service.CatalogDependencies{})
+	server := newHTTPServer(application)
 
 	assert.Zero(t, server.WriteTimeout)
 	assert.Equal(t, 10*time.Second, server.ReadHeaderTimeout)

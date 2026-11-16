@@ -67,7 +67,7 @@ func NewHandler(application *app.Application, opts ...Option) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	if application.Catalog != nil {
+	if application.Query.ListPlatforms != nil {
 		h.mountCatalog(mux)
 	} else {
 		mux.HandleFunc("GET /{$}", h.root)

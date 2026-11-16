@@ -11,7 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/app/command"
+	"app.ddd/internal/app/query"
 	"app.ddd/internal/domain/rom"
 )
 
@@ -53,8 +54,13 @@ func (h *Handler) mountCatalog(mux *http.ServeMux) {
 }
 
 func (h *Handler) catalogHome(w http.ResponseWriter, r *http.Request) {
+	counts, err := h.app.Query.ListPlatforms.Handle(r.Context(), query.ListPlatforms{})
+	if err != nil {
+		h.catalogRender(w, http.StatusInternalServerError, catalogPageData{Title: "ROM catalog", Error: err.Error()})
+		return
+	}
 	data := catalogPageData{Title: "ROM catalog", Platforms: rom.Platforms()}
-	for _, p := range h.app.Catalog.PlatformCounts(r.Context()) {
+	for _, p := range counts {
 		data.Total += p.Count
 	}
 	h.catalogRender(w, http.StatusOK, data)
@@ -67,24 +73,29 @@ func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
 		h.catalogRender(w, http.StatusNotFound, catalogPageData{Title: "Unknown platform", Error: "unknown platform " + slug})
 		return
 	}
-	query := r.URL.Query().Get("q")
-	destination, err := h.app.Catalog.Destination(platform)
+	text := r.URL.Query().Get("q")
+	destination, err := h.app.Query.ObtainDestination.Handle(r.Context(), query.ObtainDestination{Platform: platform})
 	if err != nil {
 		h.catalogRender(w, http.StatusInternalServerError, catalogPageData{Title: platform.Name, Error: err.Error()})
 		return
 	}
-	games, err := h.app.Catalog.Games(r.Context(), platform.Slug, query, 0, 200)
+	games, err := h.app.Query.ListGames.Handle(r.Context(), query.ListGames{Platform: platform.Slug, Text: text, Limit: 200})
 	if err != nil {
 		h.catalogRender(w, http.StatusBadGateway, catalogPageData{Title: platform.Name, Platform: platform, Error: err.Error()})
+		return
+	}
+	jobs, err := h.app.Query.ListJobs.Handle(r.Context(), query.ListJobs{})
+	if err != nil {
+		h.catalogRender(w, http.StatusInternalServerError, catalogPageData{Title: platform.Name, Error: err.Error()})
 		return
 	}
 	h.catalogRender(w, http.StatusOK, catalogPageData{
 		Title:       platform.Name,
 		Platform:    platform,
 		Games:       games,
-		Query:       query,
+		Query:       text,
 		Total:       len(games),
-		Jobs:        h.app.Catalog.Jobs(),
+		Jobs:        jobs,
 		Destination: destination,
 	})
 }
@@ -95,13 +106,18 @@ func (h *Handler) catalogGame(w http.ResponseWriter, r *http.Request) {
 		h.catalogRender(w, http.StatusBadRequest, catalogPageData{Title: "Bad game", Error: err.Error()})
 		return
 	}
-	game, ok, err := h.app.Catalog.Game(r.Context(), id)
-	if err != nil || !ok {
+	game, err := h.app.Query.ObtainGame.Handle(r.Context(), query.ObtainGame{ID: id})
+	if err != nil {
 		h.catalogRender(w, http.StatusNotFound, catalogPageData{Title: "Unknown game", Error: "game not found"})
 		return
 	}
 	platform, _ := rom.PlatformBySlug(game.Platform)
-	destination, err := h.app.Catalog.Destination(platform)
+	destination, err := h.app.Query.ObtainDestination.Handle(r.Context(), query.ObtainDestination{Platform: platform})
+	if err != nil {
+		h.catalogRender(w, http.StatusInternalServerError, catalogPageData{Title: game.Title, Error: err.Error()})
+		return
+	}
+	jobs, err := h.app.Query.ListJobs.Handle(r.Context(), query.ListJobs{})
 	if err != nil {
 		h.catalogRender(w, http.StatusInternalServerError, catalogPageData{Title: game.Title, Error: err.Error()})
 		return
@@ -111,7 +127,7 @@ func (h *Handler) catalogGame(w http.ResponseWriter, r *http.Request) {
 		Platform:    platform,
 		Game:        &game,
 		Cover:       game.Cover,
-		Jobs:        h.app.Catalog.Jobs(),
+		Jobs:        jobs,
 		Destination: destination,
 	})
 }
@@ -125,21 +141,35 @@ func (h *Handler) catalogRender(w http.ResponseWriter, status int, data catalogP
 }
 
 func (h *Handler) catalogAPIPlatforms(w http.ResponseWriter, r *http.Request) {
+	counts, err := h.app.Query.ListPlatforms.Handle(r.Context(), query.ListPlatforms{})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
 	out := []catalogPlatformCount{}
-	for _, p := range h.app.Catalog.PlatformCounts(r.Context()) {
+	for _, p := range counts {
 		out = append(out, catalogPlatformCount{Platform: p.Platform, Count: p.Count})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"platforms": out})
 }
 
 func (h *Handler) catalogAPIGames(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query()
-	offset, _ := strconv.Atoi(query.Get("offset"))
-	limit, _ := strconv.Atoi(query.Get("limit"))
+	params := r.URL.Query()
+	offset, _ := strconv.Atoi(params.Get("offset"))
+	limit, _ := strconv.Atoi(params.Get("limit"))
 	if limit <= 0 {
 		limit = 50
 	}
-	games, err := h.app.Catalog.Games(r.Context(), query.Get("platform"), query.Get("q"), offset, limit)
+	games, err := h.app.Query.ListGames.Handle(r.Context(), query.ListGames{
+		Platform: params.Get("platform"),
+		Text:     params.Get("q"),
+		Offset:   offset,
+		Limit:    limit,
+	})
+	if errors.Is(err, rom.ErrUnknownPlatform) {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown platform"})
+		return
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": err.Error()})
 		return
@@ -148,22 +178,31 @@ func (h *Handler) catalogAPIGames(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) catalogAPIGame(w http.ResponseWriter, r *http.Request) {
-	game, ok, err := h.app.Catalog.Game(r.Context(), r.URL.Query().Get("id"))
-	if err != nil || !ok {
+	game, err := h.app.Query.ObtainGame.Handle(r.Context(), query.ObtainGame{ID: r.URL.Query().Get("id")})
+	if err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "game not found"})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"game": game})
 }
 
-func (h *Handler) catalogAPIJobs(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": h.app.Catalog.Jobs()})
+func (h *Handler) catalogAPIJobs(w http.ResponseWriter, r *http.Request) {
+	jobs, err := h.app.Query.ListJobs.Handle(r.Context(), query.ListJobs{})
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
 }
 
 func (h *Handler) catalogAPIJob(w http.ResponseWriter, r *http.Request) {
-	job, ok := h.app.Catalog.Job(r.URL.Query().Get("id"))
-	if !ok {
+	job, err := h.app.Query.ObtainJob.Handle(r.Context(), query.ObtainJob{ID: r.URL.Query().Get("id")})
+	if errors.Is(err, rom.ErrJobNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "job not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, job)
@@ -177,22 +216,31 @@ func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
 		return
 	}
-	job, err := h.app.Catalog.StartDownload(r.Context(), catalog.StartDownload{
-		NewJobID: func() string { return strconv.FormatUint(h.jobSeq.Add(1), 10) },
-		GameID:   body.ID,
+	var jobID string
+	err := h.app.Command.StartDownload.Handle(r.Context(), command.StartDownload{
+		NewJobID: func() string {
+			jobID = strconv.FormatUint(h.jobSeq.Add(1), 10)
+			return jobID
+		},
+		GameID: body.ID,
 	})
 	switch {
-	case errors.Is(err, catalog.ErrGameNotFound):
+	case errors.Is(err, rom.ErrGameNotFound):
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "game not found"})
-	case errors.Is(err, catalog.ErrNoDownloadFile):
+	case errors.Is(err, rom.ErrNoDownloadFile):
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "game has no file"})
-	case errors.Is(err, catalog.ErrUnknownPlatform):
+	case errors.Is(err, rom.ErrUnknownPlatform):
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown platform"})
-	case errors.Is(err, catalog.ErrShuttingDown):
+	case errors.Is(err, rom.ErrShuttingDown):
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "service is shutting down"})
 	case err != nil:
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 	default:
+		job, err := h.app.Query.ObtainJob.Handle(r.Context(), query.ObtainJob{ID: jobID, Queued: true})
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
+			return
+		}
 		writeJSON(w, http.StatusAccepted, job)
 	}
 }

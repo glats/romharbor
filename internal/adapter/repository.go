@@ -35,6 +35,7 @@ type RomLibrary interface {
 type RomJobStore interface {
 	Add(job rom.Job) rom.Job
 	Get(id string) (rom.Job, bool)
+	GetQueued(id string) (rom.Job, bool)
 	Update(id string, change func(*rom.Job))
 	List() []rom.Job
 }
