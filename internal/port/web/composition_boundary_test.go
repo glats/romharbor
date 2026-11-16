@@ -16,12 +16,49 @@ import (
 
 	"app.ddd/internal/adapter/romcache"
 	"app.ddd/internal/adapter/romjobs"
+	"app.ddd/internal/app/catalog"
+	"app.ddd/internal/app/command"
 	appmock "app.ddd/internal/app/mock"
+	"app.ddd/internal/app/query"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/domain/user"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
 )
+
+func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
+	ctx := context.Background()
+	cache := romcache.New(t.TempDir())
+	game := rom.Game{
+		ID: "warm", Platform: "snes", Title: "Warm",
+		Files: []rom.File{{Name: "Warm.sfc"}},
+	}
+	require.NoError(t, cache.Store("snes", rom.Listing{
+		Fetched: time.Now(), Games: []rom.Game{game},
+	}))
+	listings := catalog.NewListings(nil, cache, 0)
+	_, err := listings.Games(ctx, "snes", "", 0, 1)
+	require.NoError(t, err)
+	require.NoError(t, cache.Store("snes", rom.Listing{Fetched: time.Now()}))
+	jobs := romjobs.New()
+	downloads := catalog.NewDownloads(nil, jobs, nil)
+	require.NoError(t, downloads.Shutdown(ctx))
+	application := service.NewApp(nil, listings, downloads, jobs, nil)
+	games, err := application.Query.ListGames.Handle(ctx, query.ListGames{
+		Platform: "snes", Limit: 1,
+	})
+	require.NoError(t, err)
+	require.Equal(t, []rom.Game{game}, games)
+	err = application.Command.StartDownload.Handle(ctx, command.StartDownload{
+		GameID: "warm",
+		NewJobID: func() string {
+			t.Fatal("closed downloads allocated an ID")
+			return ""
+		},
+	})
+	require.ErrorIs(t, err, rom.ErrShuttingDown)
+	require.Empty(t, jobs.List())
+}
 
 func TestSharedCompositionServesUsersAndCachedCatalog(t *testing.T) {
 	ctx := context.Background()
@@ -36,10 +73,11 @@ func TestSharedCompositionServesUsersAndCachedCatalog(t *testing.T) {
 	repo := appmock.NewUserRepository(t)
 	repo.On("List", ctx).Return([]user.User{}, nil)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	application, shutdown := service.NewApp(repo, service.CatalogDependencies{
-		Cache: cache, Jobs: romjobs.New(), Logger: quiet,
-	})
-	t.Cleanup(func() { require.NoError(t, shutdown(ctx)) })
+	jobs := romjobs.New()
+	listings := catalog.NewListings(nil, cache, 0)
+	downloads := catalog.NewDownloads(nil, jobs, quiet)
+	application := service.NewApp(repo, listings, downloads, jobs, nil)
+	t.Cleanup(func() { require.NoError(t, downloads.Shutdown(ctx)) })
 	handler := web.NewHandler(application, web.WithLogger(quiet))
 	for _, path := range []string{
 		"/users", "/api/jobs", "/api/games?platform=snes",

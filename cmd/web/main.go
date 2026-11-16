@@ -26,6 +26,7 @@ import (
 	"app.ddd/internal/adapter/romsource"
 	"app.ddd/internal/adapter/sqlite"
 	"app.ddd/internal/app"
+	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/common/logger"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
@@ -104,18 +105,23 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 		}
 	}
 
-	romDeps, err := romDependencies(cfg.ROM)
+	sources, err := buildSources(cfg.ROM.Sources)
 	if err != nil {
 		return err
 	}
-	application, shutdownDownloads := service.NewApp(sqlite.NewUserRepository(db), romDeps)
+	cache := romcache.New(cfg.ROM.Cache)
+	library := &romlibrary.Library{Root: cfg.ROM.Library, HTTPClient: &http.Client{}}
+	jobs := romjobs.New()
+	listings := catalog.NewListings(sources, cache, cfg.ROM.CacheTTL)
+	downloads := catalog.NewDownloads(library, jobs, nil)
+	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs, library)
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()
-		return shutdownDownloads(shutdownCtx)
+		return downloads.Shutdown(shutdownCtx)
 	}
 	defer func() { _ = stopDownloads() }()
-	log.Info().Strs("sources", sourceNames(romDeps.Sources)).Msg("ROM sources ready")
+	log.Info().Strs("sources", sourceNames(sources)).Msg("ROM sources ready")
 
 	listener, err := net.Listen("tcp", cfg.HTTP.Addr)
 	if err != nil {
@@ -160,20 +166,6 @@ func newHTTPServer(application *app.Application) *http.Server {
 		server.WriteTimeout = 0
 	}
 	return server
-}
-
-func romDependencies(cfg config.ROMConfig) (service.CatalogDependencies, error) {
-	sources, err := buildSources(cfg.Sources)
-	if err != nil {
-		return service.CatalogDependencies{}, err
-	}
-	return service.CatalogDependencies{
-		Sources: sources,
-		Cache:   romcache.New(cfg.Cache),
-		Library: &romlibrary.Library{Root: cfg.Library, HTTPClient: &http.Client{}},
-		Jobs:    romjobs.New(),
-		TTL:     cfg.CacheTTL,
-	}, nil
 }
 
 func sourceNames(sources []adapter.RomSource) []string {

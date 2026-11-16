@@ -1,10 +1,6 @@
 package service
 
 import (
-	"context"
-	"log/slog"
-	"time"
-
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/app"
 	"app.ddd/internal/app/catalog"
@@ -13,19 +9,8 @@ import (
 	"app.ddd/internal/common/metric"
 )
 
-type CatalogDependencies struct {
-	Sources []adapter.RomSource
-	Cache   adapter.RomListingCache
-	Library adapter.RomLibrary
-	Jobs    adapter.RomJobStore
-	TTL     time.Duration
-	Logger  *slog.Logger
-}
-
-func NewApp(userRepository adapter.UserRepository, deps CatalogDependencies) (*app.Application, func(context.Context) error) {
+func NewApp(userRepository adapter.UserRepository, listings *catalog.Listings, downloads *catalog.Downloads, jobs adapter.RomJobStore, library adapter.RomLibrary) *app.Application {
 	metrics := metric.NoOp{}
-	listings := catalog.NewListings(deps.Sources, deps.Cache, deps.TTL)
-	downloads := catalog.NewDownloads(deps.Library, deps.Jobs, deps.Logger)
 
 	return &app.Application{
 		Command: &app.Command{
@@ -40,9 +25,9 @@ func NewApp(userRepository adapter.UserRepository, deps CatalogDependencies) (*a
 			ListPlatforms:     query.NewListPlatformsHandler(listings, metrics),
 			ListGames:         query.NewListGamesHandler(listings, metrics),
 			ObtainGame:        query.NewObtainGameHandler(listings, metrics),
-			ListJobs:          query.NewListJobsHandler(deps.Jobs, metrics),
-			ObtainJob:         query.NewObtainJobHandler(deps.Jobs, metrics),
-			ObtainDestination: query.NewObtainDestinationHandler(deps.Library, metrics),
+			ListJobs:          query.NewListJobsHandler(jobs, metrics),
+			ObtainJob:         query.NewObtainJobHandler(jobs, metrics),
+			ObtainDestination: query.NewObtainDestinationHandler(library, metrics),
 		},
-	}, downloads.Shutdown
+	}
 }

@@ -61,7 +61,7 @@ func TestCatalogPageKeepsLegacyHeaders(t *testing.T) {
 func TestUsersPagesKeepHTMXVary(t *testing.T) {
 	repo := appmock.NewUserRepository(t)
 	repo.EXPECT().List(mock.Anything).Return(nil, nil).Once()
-	application, _ := service.NewApp(repo, service.CatalogDependencies{})
+	application := service.NewApp(repo, nil, nil, nil, nil)
 	handler := web.NewHandler(application, web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil))))
 
 	rec := do(t, handler, http.MethodGet, "/users")

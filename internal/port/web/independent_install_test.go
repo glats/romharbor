@@ -16,6 +16,7 @@ import (
 	"app.ddd/internal/adapter/romcache"
 	"app.ddd/internal/adapter/romjobs"
 	"app.ddd/internal/adapter/romlibrary"
+	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
@@ -42,7 +43,11 @@ func TestIndependentRequestCancellationInstall(t *testing.T) {
 	defer upstream.Close()
 	jobs := romjobs.New()
 	root := t.TempDir()
-	a, stop := service.NewApp(nil, service.CatalogDependencies{Sources: []adapter.RomSource{payloadSource{upstream.URL}}, Cache: romcache.New(root + "/cache"), Library: &romlibrary.Library{Root: root + "/roms"}, Jobs: jobs, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	library := &romlibrary.Library{Root: root + "/roms"}
+	listings := catalog.NewListings([]adapter.RomSource{payloadSource{upstream.URL}}, romcache.New(root+"/cache"), 0)
+	downloads := catalog.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a := service.NewApp(nil, listings, downloads, jobs, library)
+	stop := downloads.Shutdown
 	defer func() { _ = stop(context.Background()) }()
 	h := web.NewHandler(a)
 	ctx, cancel := context.WithCancel(context.Background())

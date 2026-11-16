@@ -19,6 +19,7 @@ import (
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
 	"app.ddd/internal/adapter/romjobs"
+	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
@@ -69,7 +70,10 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 	source := &independentSource{}
 	jobs := romjobs.New()
 	library := &independentLibrary{}
-	a, stop := service.NewApp(nil, service.CatalogDependencies{Sources: []adapter.RomSource{source}, Cache: cache, Jobs: jobs, Library: library, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	listings := catalog.NewListings([]adapter.RomSource{source}, cache, 0)
+	downloads := catalog.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a := service.NewApp(nil, listings, downloads, jobs, library)
+	stop := downloads.Shutdown
 	t.Cleanup(func() { _ = stop(context.Background()) })
 	h := web.NewHandler(a)
 	for _, platform := range []string{"../neighbor", "nested/../../neighbor", `..\neighbor`, "SNES", "snes ", "%2e%2e%2fneighbor", "unknown"} {
@@ -159,7 +163,10 @@ func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
 func TestIndependentShutdownCancellation(t *testing.T) {
 	jobs := romjobs.New()
 	library := &independentLibrary{entered: make(chan struct{}), block: true}
-	a, stop := service.NewApp(nil, service.CatalogDependencies{Sources: []adapter.RomSource{&independentSource{}}, Cache: romcache.New(t.TempDir()), Jobs: jobs, Library: library, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	listings := catalog.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
+	downloads := catalog.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a := service.NewApp(nil, listings, downloads, jobs, library)
+	stop := downloads.Shutdown
 	h := web.NewHandler(a)
 	w := independentRequest(h, "POST", "/api/download", `{"id":"ok"}`)
 	if w.Code != 202 {

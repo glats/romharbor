@@ -134,6 +134,9 @@ tests/               Container smoke test
 ```
 
 HTTP handlers use `Application.Command` and `Application.Query`; concrete adapters are wired at startup.
+`internal/adapter/config` loads environment configuration. `cmd/web` uses those values to construct
+adapters and catalog collaborators and owns download shutdown. The single `service.NewApp` receives
+those dependencies and only composes handlers; it does not load configuration or own cleanup.
 See [AGENTS.md](AGENTS.md) for contribution conventions and dependency boundaries.
 
 For development checks, use `make test`, `make lint`, and `go test -race ./...`.

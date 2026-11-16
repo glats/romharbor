@@ -2,7 +2,6 @@ package web_test
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -31,9 +30,8 @@ func newHandler(t *testing.T, repo *appmock.UserRepository, opts ...web.Option) 
 
 	quiet := web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	application, shutdown := service.NewApp(repo, service.CatalogDependencies{})
+	application := service.NewApp(repo, nil, nil, nil, nil)
 	application.Query.ListPlatforms = nil
-	t.Cleanup(func() { require.NoError(t, shutdown(context.Background())) })
 	return web.NewHandler(application, append([]web.Option{quiet}, opts...)...)
 }
 

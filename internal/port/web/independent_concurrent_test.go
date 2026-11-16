@@ -11,6 +11,7 @@ import (
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/romcache"
 	"app.ddd/internal/adapter/romjobs"
+	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
 )
@@ -18,7 +19,10 @@ import (
 func TestIndependentConcurrentStartShutdown(t *testing.T) {
 	for round := 0; round < 10; round++ {
 		jobs := romjobs.New()
-		a, stop := service.NewApp(nil, service.CatalogDependencies{Sources: []adapter.RomSource{&independentSource{}}, Cache: romcache.New(t.TempDir()), Jobs: jobs, Library: &independentLibrary{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		library := &independentLibrary{}
+		listings := catalog.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
+		downloads := catalog.NewDownloads(library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+		a := service.NewApp(nil, listings, downloads, jobs, library)
 		h := web.NewHandler(a)
 		if w := independentRequest(h, "GET", "/api/games?platform=snes", ""); w.Code != 200 {
 			t.Fatal(w.Code)
@@ -36,7 +40,7 @@ func TestIndependentConcurrentStartShutdown(t *testing.T) {
 		}
 		close(start)
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		err := stop(ctx)
+		err := downloads.Shutdown(ctx)
 		cancel()
 		if err != nil {
 			t.Fatal(err)

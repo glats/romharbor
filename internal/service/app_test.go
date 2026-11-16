@@ -11,7 +11,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"app.ddd/internal/adapter"
 	"app.ddd/internal/app"
+	"app.ddd/internal/app/catalog"
 	"app.ddd/internal/app/command"
 	"app.ddd/internal/app/mock"
 	"app.ddd/internal/app/query"
@@ -31,8 +33,17 @@ func TestNewAppIsTheOnlyApplicationConstructor(t *testing.T) {
 	}
 }
 
+func TestNewAppOnlyReturnsApplication(t *testing.T) {
+	constructor := reflect.TypeOf(NewApp)
+	assert.Equal(t, 1, constructor.NumOut())
+	assert.Equal(t, reflect.TypeFor[*app.Application](), constructor.Out(0))
+	assert.Equal(t, reflect.TypeFor[func(adapter.UserRepository, *catalog.Listings, *catalog.Downloads, adapter.RomJobStore, adapter.RomLibrary) *app.Application](), constructor)
+}
+
 func TestNewAppWiresEveryHandler(t *testing.T) {
-	application, shutdown := NewApp(mock.NewUserRepository(t), CatalogDependencies{})
+	downloads := catalog.NewDownloads(nil, nil, nil)
+	application := NewApp(mock.NewUserRepository(t), catalog.NewListings(nil, nil, 0), downloads, nil, nil)
+	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(context.Background())) })
 
 	assert.NotNil(t, application.Command.CreateUser)
 	assert.NotNil(t, application.Command.UpdateUser)
@@ -46,9 +57,6 @@ func TestNewAppWiresEveryHandler(t *testing.T) {
 	assert.NotNil(t, application.Query.ListJobs)
 	assert.NotNil(t, application.Query.ObtainJob)
 	assert.NotNil(t, application.Query.ObtainDestination)
-	if assert.NotNil(t, shutdown) {
-		assert.NoError(t, shutdown(context.Background()))
-	}
 }
 
 func TestApplicationHasNoParallelCatalogService(t *testing.T) {
@@ -72,8 +80,9 @@ func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
 	repo.EXPECT().Delete(ctx, "u1").Return(nil).Once()
 	repo.EXPECT().List(ctx).Return([]user.User{ada}, nil).Once()
 
-	application, shutdown := NewApp(repo, CatalogDependencies{})
-	t.Cleanup(func() { assert.NoError(t, shutdown(ctx)) })
+	downloads := catalog.NewDownloads(nil, nil, nil)
+	application := NewApp(repo, catalog.NewListings(nil, nil, 0), downloads, nil, nil)
+	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(ctx)) })
 
 	got, err := application.Query.ObtainUser.Handle(ctx, query.ObtainUser{ID: "u1"})
 	assert.NoError(t, err)
