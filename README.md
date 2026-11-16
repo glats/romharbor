@@ -15,6 +15,17 @@ No ROMs, BIOS, keys, private deployment configuration or library data are includ
 ROMHarbor is licensed under MIT. Vendored assets retain their own notices in
 [`THIRD_PARTY.md`](internal/port/web/static/THIRD_PARTY.md).
 
+## Community installation
+
+ROMHarbor provides a standalone flake with a package and NixOS module, plus a Dockerfile
+and a persistent Compose setup. See [installation and releases](docs/distribution.md)
+for version pinning, service options, storage permissions and GHCR publication.
+
+Quick local container start: `docker compose up --build -d`, then open
+`http://localhost:8080/users`. The catalog root fetches upstream metadata on a cold cache.
+Use the catalog only for content you are authorized to download. Registries distribute
+the application image, not ROMs or a hosted library.
+
 ## Architecture and direction
 
 Keep one Go application with domain-focused commands and queries, following the inherited
@@ -149,7 +160,7 @@ config/                     mockery.yaml, bobgen.yaml
 | `internal/domain` | standard library |
 | `internal/app` | adapter-root contracts, `domain`, `common` |
 | `internal/adapter` (root) | standard library and `domain` only |
-| `internal/port` (incl. `web`) | `app`, `domain` (standard library only otherwise) |
+| `internal/port` (incl. `web`) | `app` root, `app/command`, `app/query`, `domain` (standard library only otherwise) |
 | `internal/service` | adapter-root contracts, `app`, `domain`, `common` |
 | `internal/adapter/sqlite` | adapter-root contracts, `domain`, bob, opt, dbmate, the SQLite driver |
 | `internal/adapter/config` | the env parser |

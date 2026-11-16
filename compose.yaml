@@ -1,0 +1,21 @@
+services:
+  romharbor:
+    image: ${ROMHARBOR_IMAGE:-romharbor:local}
+    build: .
+    ports:
+      - "127.0.0.1:${ROMHARBOR_PORT:-8080}:8080"
+    volumes:
+      - romharbor-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    stop_grace_period: 35s
+    restart: unless-stopped
+
+volumes:
+  romharbor-data:

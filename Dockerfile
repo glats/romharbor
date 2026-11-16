@@ -9,6 +9,9 @@ RUN CGO_ENABLED=1 go build -trimpath -ldflags="-s -w" -o /out/web ./cmd/web
 
 FROM debian:bookworm-slim
 
+LABEL org.opencontainers.image.source="https://github.com/glats/romharbor" \
+      org.opencontainers.image.licenses="MIT"
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates p7zip-full \
  && rm -rf /var/lib/apt/lists/*
