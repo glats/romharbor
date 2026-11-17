@@ -15,7 +15,7 @@ Criteria used by the audit (derived from the user's corrections and AGENTS.md): 
 ## Tasks
 
 - T0 [S1] complete — read-only audit by four explorers (romsource; romlibrary; sqlite, romcache, config and composition root; romlistings, romdownloads, ports, handlers and web). 99 findings: 2 blocker, 41 major, 56 minor. Consolidated below. Commit: with this document.
-- T1 [S4] pending — close the open decisions D1..D4 one at a time and record each answer verbatim in the Log.
+- T1 [S4] in progress (D1 closed) — close the open decisions D1..D4 one at a time and record each answer verbatim in the Log.
 - T2 [S3] pending — checks first: lint and depguard rules for the patterns the ledger classes as rule-expressible, each proven to fail on a reproduction and pass on the base. Rule files need user approval.
 - T3 [S5] pending — corrections by cluster, in dependency order (K1 transport, K2 errors and install integrity, K3 ports and boundaries, K4 state and memory, K5 persistence, K6 compatibility code, K7 surface, K8 composition root). Each cluster is expanded only when selected.
 - T4 [S5] pending — closure proof and independent verification for clusters that touch concurrency, persisted formats or contracts others consume.
@@ -149,7 +149,7 @@ Severity: B blocker, M major, m minor. Fix: lint, test, arch (architecture chang
 
 ## Open decisions
 
-- D1 HTTP policy. Do LolRoms and the file download also go through a contract with a generated client? Facts from the audit: LolRoms fits (one GET with a query parameter and a `text/html` response); the download does not fit well (the generated client fixes its server at construction and re-escapes path parameters, `WithResponses` buffers the whole body, and `Range` resume, `Content-Range` validation and `.part` handling stay hand-written either way).
+- D1 HTTP policy — CLOSED (L6). Do LolRoms and the file download also go through a contract with a generated client? Facts from the audit: LolRoms fits (one GET with a query parameter and a `text/html` response); the download does not fit well (the generated client fixes its server at construction and re-escapes path parameters, `WithResponses` buffers the whole body, and `Range` resume, `Content-Range` validation and `.part` handling stay hand-written either way).
 - D2 Browse and search. Keep platform browsing and text search both, or always start from search? It shapes the behavior-named CQRS surface (K3).
 - D3 Strictness for compatibility. May K6 delete behavior kept only for historical byte-compatibility (error strings, legacy labels, the untagged cache format)?
 - D4 Order and size. Which cluster first after the checks, and whether `7z` stays an external process behind a port or moves to a pure-Go library.
@@ -161,3 +161,4 @@ Severity: B blocker, M major, m minor. Fix: lint, test, arch (architecture chang
 - L3: Method (odd-project): inventory first against explicit criteria; one ledger as the only scope; rules as deterministic checks before corrections; one user triage; corrections by cluster with proof. No Gas Town campaign is started; the adapter layer is about 2.2k production lines and the units depend on each other.
 - L4: Audit results: romsource 27, sqlite/romcache/config/composition root 25, romlibrary 24, romlistings/romdownloads/ports/handlers/web 23 findings, 99 in total (2 blocker, 41 major, 56 minor). Several auditor claims are marked unverified and carried as such (arcade install path, 7z symlinks, duplicate execution after lease loss, `FileURL` callers outside `internal/`).
 - L5: My own earlier decisions are re-opened by this audit and not defended: `provider_errors.go` (R-03, R-04), accepting the missing lease-loss signal (S-03, A-11), and retrying permanent errors (L-15).
+- L6: D1 answered by the user with the option "LolRoms con contrato; descarga confinada (Recomendada)": LolRoms moves to an OpenAPI contract with a generated client; the Archive.org and DlArchive clients are used completely (typed responses, contract errors); the file download stays hand-written but confined to one package behind a narrow port; a lint rule forbids `net/http` and `os/exec` outside the generated packages and that one.
