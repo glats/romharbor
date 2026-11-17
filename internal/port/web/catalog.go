@@ -1,7 +1,9 @@
 package web
 
 import (
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -192,7 +194,7 @@ func (h *Handler) catalogAPIJobs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": jobs})
+	writeConditionalJSON(w, r, map[string]any{"jobs": jobs})
 }
 
 func (h *Handler) catalogAPIJob(w http.ResponseWriter, r *http.Request) {
@@ -205,7 +207,7 @@ func (h *Handler) catalogAPIJob(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, job)
+	writeConditionalJSON(w, r, job)
 }
 
 func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
@@ -247,6 +249,40 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		slog.Error("write json", "error", err)
 	}
+}
+
+// writeConditionalJSON answers 304 when the client already holds this exact
+// body, so polling an unchanged job costs no payload.
+func writeConditionalJSON(w http.ResponseWriter, r *http.Request, body any) {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		slog.Error("write json", "error", err)
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"error": "encode response"})
+		return
+	}
+	sum := sha256.Sum256(payload)
+	etag := `"` + hex.EncodeToString(sum[:16]) + `"`
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Cache-Control", "no-cache")
+	if etagMatches(r.Header.Get("If-None-Match"), etag) {
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(append(payload, '\n')); err != nil {
+		slog.Error("write json", "error", err)
+	}
+}
+
+func etagMatches(header, etag string) bool {
+	for _, candidate := range strings.Split(header, ",") {
+		candidate = strings.TrimPrefix(strings.TrimSpace(candidate), "W/")
+		if candidate == "*" || candidate == etag {
+			return true
+		}
+	}
+	return false
 }
 
 // humanSize renders a byte count for the gallery.
