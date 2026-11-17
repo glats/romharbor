@@ -87,7 +87,6 @@ linters:
           files:
             - "**/internal/adapter/romcache/**"
             - "**/internal/adapter/romdownloads/**"
-            - "**/internal/adapter/romjobs/**"
             - "**/internal/adapter/romlistings/**"
             - "**/internal/adapter/romlibrary/**"
             - "**/internal/adapter/romsource/**"
@@ -100,6 +99,27 @@ linters:
             - app.ddd/internal/adapter/romsource/dlarchiveapi
             - github.com/PuerkitoBio/goquery
             - github.com/oapi-codegen/runtime
+        adapter-http-confined:
+          files:
+            - "**/internal/adapter/**"
+            - "!$test"
+            - "!**/internal/adapter/romsource/archiveorgapi/**"
+            - "!**/internal/adapter/romsource/dlarchiveapi/**"
+            - "!**/internal/adapter/romsource/archiveorg.go"
+            - "!**/internal/adapter/romsource/dlarchive.go"
+            - "!**/internal/adapter/romsource/lolroms.go"
+            - "!**/internal/adapter/romlibrary/library.go"
+          deny:
+            - pkg: net/http
+              desc: "Outbound HTTP belongs to a generated client built from a contract in contract/openapi, or to the one confined download package. Model the provider operation in its OpenAPI contract and call the generated client instead of building requests by hand."
+        no-external-processes:
+          files:
+            - "**/*.go"
+            - "!$test"
+            - "!**/internal/adapter/romlibrary/extract.go"
+          deny:
+            - pkg: os/exec
+              desc: "Do not run external programs. Use a Go library behind an adapter port so the call is bounded, cancellable and portable."
         common:
           list-mode: strict
           files:
