@@ -1,0 +1,37 @@
+openapi: 3.0.3
+info:
+  title: LolRoms search (consumer-maintained)
+  version: 1.0.0
+  description: |
+    Consumer-maintained contract for the HTML search page of the LolRoms listing
+    that ROMHarbor consumes. LolRoms publishes no API and no OpenAPI document, so
+    this is not an official LolRoms specification: the shape is observed behavior,
+    not an upstream guarantee. The page is plain HTML whose anchors link directly
+    to archive files, and ROMHarbor parses those anchors itself.
+servers:
+  - url: https://lolroms.com
+paths:
+  /:
+    get:
+      operationId: searchLolRoms
+      summary: Search the listing
+      description: |
+        Returns an HTML page. Every anchor that links to an archive file under a
+        vendor and console folder is one game. The listing caps the result at about
+        sixty entries and offers no paging, so ROMHarbor pages the parsed result.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Search term.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML search page.
+          content:
+            text/html:
+              schema:
+                type: string
+        default:
+          description: Any other status. The adapter reports the HTTP status only.

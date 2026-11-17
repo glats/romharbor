@@ -1,0 +1,5 @@
+package: lolromsapi
+output: internal/adapter/romsource/lolromsapi/client.gen.go
+generate:
+  client: true
+  models: true

@@ -158,7 +158,7 @@ func TestLolRomsSendsSearchRequest(t *testing.T) {
 	if got := req.URL.Query().Get("q"); got != "super mario" {
 		t.Errorf("q = %q, want %q", got, "super mario")
 	}
-	if got := req.Header.Get("User-Agent"); got != "Mozilla/5.0 (X11; Linux x86_64) romcatalog/1.0" {
+	if got := req.Header.Get("User-Agent"); got != "ROMHarbor" {
 		t.Errorf("User-Agent = %q", got)
 	}
 	if got := req.Header.Get("Accept"); got != "text/html" {

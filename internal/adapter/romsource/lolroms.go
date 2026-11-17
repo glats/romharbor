@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"net/url"
 	"path"
 	"regexp"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
+	"app.ddd/internal/adapter/romsource/lolromsapi"
 	"app.ddd/internal/domain/rom"
 )
 
@@ -20,16 +20,14 @@ import (
 // style archives per vendor and console. The search is a plain HTML query
 // with a hard cap of about sixty results, and every link is a direct file.
 type LolRoms struct {
-	HTTPClient *http.Client
+	HTTPClient lolromsapi.HttpRequestDoer
 	BaseURL    string
 }
 
-// NewLolRoms returns the lolroms source.
-func NewLolRoms(client *http.Client) *LolRoms {
-	if client == nil {
-		client = http.DefaultClient
-	}
-	return &LolRoms{HTTPClient: client, BaseURL: "https://lolroms.com"}
+// NewLolRoms returns the lolroms source. A nil doer is not replaced by a
+// default client; Search reports that no client is configured.
+func NewLolRoms(doer lolromsapi.HttpRequestDoer) *LolRoms {
+	return &LolRoms{HTTPClient: doer, BaseURL: "https://lolroms.com"}
 }
 
 // Name identifies the source.
@@ -81,11 +79,11 @@ func lolRomsConsolePlatform(console string) (string, bool) {
 }
 
 // lolRomsArchive matches the file extensions the source publishes.
-var lolRomsArchive = regexp.MustCompile(`(?i)\.(7z|chd|zip|7Z)$`)
+var lolRomsArchive = regexp.MustCompile(`(?i)\.(7z|chd|zip)$`)
 
 // readAll reads a response body with a bounded size.
-func readAll(resp *http.Response) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+func readAll(body io.Reader) ([]byte, error) {
+	return io.ReadAll(io.LimitReader(body, 8<<20))
 }
 
 // Search returns the games that match the query.
@@ -93,22 +91,26 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 	if q.Text == "" {
 		return nil, fmt.Errorf("lolroms: a search term is required")
 	}
-	endpoint := l.BaseURL + "/?q=" + url.QueryEscape(q.Text)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if l.HTTPClient == nil {
+		return nil, fmt.Errorf("lolroms: no HTTP client configured")
+	}
+	client, err := lolromsapi.NewClient(
+		strings.TrimRight(l.BaseURL, "/")+"/",
+		lolromsapi.WithHTTPClient(l.HTTPClient),
+		lolromsapi.WithRequestEditorFn(lolromsapi.HTMLRequestEditor("ROMHarbor")),
+	)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (X11; Linux x86_64) romcatalog/1.0")
-	req.Header.Set("Accept", "text/html")
-	resp, err := l.HTTPClient.Do(req)
+	resp, err := client.SearchLolRoms(ctx, &lolromsapi.SearchLolRomsParams{Q: q.Text})
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("lolroms: %s", resp.Status)
 	}
-	body, err := readAll(resp)
+	body, err := readAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
