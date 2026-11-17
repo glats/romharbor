@@ -87,6 +87,7 @@ linters:
           files:
             - "**/internal/adapter/romcache/**"
             - "**/internal/adapter/romdownloads/**"
+            - "**/internal/adapter/romfetch/**"
             - "**/internal/adapter/romlistings/**"
             - "**/internal/adapter/romlibrary/**"
             - "**/internal/adapter/romsource/**"
@@ -97,7 +98,10 @@ linters:
             - app.ddd/internal/domain
             - app.ddd/internal/adapter/romsource/archiveorgapi
             - app.ddd/internal/adapter/romsource/dlarchiveapi
+            - app.ddd/internal/adapter/romsource/lolromsapi
+            - app.ddd/internal/adapter/romfetch
             - github.com/PuerkitoBio/goquery
+            - github.com/bodgit/sevenzip
             - github.com/oapi-codegen/runtime
         adapter-http-confined:
           files:
@@ -105,6 +109,8 @@ linters:
             - "!$test"
             - "!**/internal/adapter/romsource/archiveorgapi/**"
             - "!**/internal/adapter/romsource/dlarchiveapi/**"
+            - "!**/internal/adapter/romsource/lolromsapi/**"
+            - "!**/internal/adapter/romfetch/**"
             - "!**/internal/adapter/romsource/archiveorg.go"
             - "!**/internal/adapter/romsource/dlarchive.go"
             - "!**/internal/adapter/romsource/lolroms.go"
