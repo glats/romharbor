@@ -98,7 +98,7 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 	client, err := lolromsapi.NewClient(
 		strings.TrimRight(l.BaseURL, "/")+"/",
 		lolromsapi.WithHTTPClient(l.HTTPClient),
-		lolromsapi.WithRequestEditorFn(romfetch.Headers(map[string]string{"User-Agent": "ROMHarbor", "Accept": "text/html"})),
+		lolromsapi.WithRequestEditorFn(romfetch.Headers(map[string]string{"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) ROMHarbor/1.0", "Accept": "text/html"})),
 	)
 	if err != nil {
 		return nil, err
