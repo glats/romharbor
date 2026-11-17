@@ -42,7 +42,8 @@ func (s *JobStore) Enqueue(ctx context.Context, req rom.InstallRequest) (rom.Job
 	if err != nil {
 		return rom.Job{}, fmt.Errorf("encode job request: %w", err)
 	}
-	now := s.Now().UnixMilli()
+	at := s.Now()
+	now := at.UnixMilli()
 
 	for range 3 {
 		var id int64
@@ -51,7 +52,7 @@ func (s *JobStore) Enqueue(ctx context.Context, req rom.InstallRequest) (rom.Job
 			 VALUES (?, ?, 'queued', ?, ?, ?, ?)
 			 ON CONFLICT DO NOTHING
 			 RETURNING id`,
-			req.Game.ID, req.Game.Title, max(req.File.Size, 0), string(payload), now, now,
+			req.Game.ID, req.Game.Title, max(req.File.Size, 0), string(payload), now, at.UnixNano(),
 		)
 		if err == nil {
 			return rom.Job{
@@ -60,7 +61,7 @@ func (s *JobStore) Enqueue(ctx context.Context, req rom.InstallRequest) (rom.Job
 				Title:   req.Game.Title,
 				Status:  rom.JobQueued,
 				Total:   max(req.File.Size, 0),
-				Started: time.UnixMilli(now).UTC(),
+				Started: time.Unix(0, at.UnixNano()),
 			}, nil
 		}
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -161,7 +162,7 @@ func (s *JobStore) Complete(ctx context.Context, id string, result rom.InstallRe
 	return s.updateRunning(ctx, id,
 		`UPDATE jobs SET status = 'done', path = ?, total = ?, error = '', lease_until = 0, finished = ?
 		 WHERE id = ? AND status = 'running'`,
-		result.Path, result.Size, s.Now().UnixMilli())
+		result.Path, result.Size, s.Now().UnixNano())
 }
 
 func (s *JobStore) Retry(ctx context.Context, id string, cause error, runAt time.Time) error {
@@ -175,7 +176,7 @@ func (s *JobStore) Fail(ctx context.Context, id string, cause error) error {
 	return s.updateRunning(ctx, id,
 		`UPDATE jobs SET status = 'failed', error = ?, lease_until = 0, finished = ?
 		 WHERE id = ? AND status IN ('queued', 'running')`,
-		cause.Error(), s.Now().UnixMilli())
+		cause.Error(), s.Now().UnixNano())
 }
 
 func (s *JobStore) Release(ctx context.Context, id string) error {
@@ -195,7 +196,7 @@ func (s *JobStore) Recover(ctx context.Context) (int, error) {
 
 func (s *JobStore) Prune(ctx context.Context, finishedBefore time.Time) (int, error) {
 	res, err := s.db.ExecContext(ctx,
-		`DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished < ?`, finishedBefore.UnixMilli())
+		`DELETE FROM jobs WHERE status IN ('done', 'failed') AND finished < ?`, finishedBefore.UnixNano())
 	return affected(res, err, "prune jobs")
 }
 
@@ -269,10 +270,10 @@ func toJob(row *models.Job) rom.Job {
 		Total:      row.Total,
 		Error:      row.Error,
 		Path:       row.Path,
-		Started:    time.UnixMilli(row.Started).UTC(),
+		Started:    time.Unix(0, row.Started),
 	}
 	if row.Finished > 0 {
-		job.Finished = time.UnixMilli(row.Finished).UTC()
+		job.Finished = time.Unix(0, row.Finished)
 	}
 	return job
 }

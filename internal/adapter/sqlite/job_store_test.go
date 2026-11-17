@@ -44,7 +44,7 @@ func newJobStore(t *testing.T) (*JobStore, *clock, string) {
 	db, err := Open(path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	clk := &clock{now: time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)}
+	clk := &clock{now: time.Date(2026, 11, 16, 12, 0, 0, 0, time.Local)}
 	store := NewJobStore(db)
 	store.Now = clk.Now
 	return store, clk, path
@@ -343,4 +343,23 @@ func TestGetRejectsUnknownAndMalformedIDs(t *testing.T) {
 		require.NoError(t, err, id)
 		assert.False(t, ok, id)
 	}
+}
+
+func TestJobTimestampsKeepNanosecondsAndTheLocalZone(t *testing.T) {
+	store, clk, _ := newJobStore(t)
+	ctx := context.Background()
+	clk.now = time.Date(2026, 11, 16, 12, 0, 0, 123456789, time.Local)
+	queued := mustEnqueue(t, store, "a")
+	claim, _, err := store.Claim(ctx, time.Minute)
+	require.NoError(t, err)
+	clk.Advance(1500 * time.Millisecond)
+	require.NoError(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/x", Size: 1}))
+
+	got, _, err := store.Get(ctx, queued.ID)
+	require.NoError(t, err)
+
+	assert.Equal(t, "2026-11-16T12:00:00.123456789", got.Started.Format("2006-01-02T15:04:05.999999999"))
+	assert.Equal(t, got.Started.Format(time.RFC3339Nano), queued.Started.Format(time.RFC3339Nano))
+	assert.Equal(t, "2026-11-16T12:00:01.623456789", got.Finished.Format("2006-01-02T15:04:05.999999999"))
+	assert.Equal(t, time.Local, got.Started.Location())
 }
