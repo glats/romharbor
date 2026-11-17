@@ -2,11 +2,9 @@ package romsource
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -15,10 +13,12 @@ import (
 	"app.ddd/internal/domain/rom"
 )
 
+const dlArchiveMaxResponseBytes = 8 << 20
+
 // DlArchive serves games from the dlarchive index, a JSON listing of a
 // personal file host that groups ROMs by platform folder.
 type DlArchive struct {
-	HTTPClient *http.Client
+	HTTPClient dlarchiveapi.HttpRequestDoer
 	BaseURL    string
 	// TTL is how long the index stays cached in memory.
 	TTL time.Duration
@@ -29,10 +29,7 @@ type DlArchive struct {
 }
 
 // NewDlArchive returns the dlarchive source.
-func NewDlArchive(client *http.Client) *DlArchive {
-	if client == nil {
-		client = http.DefaultClient
-	}
+func NewDlArchive(client dlarchiveapi.HttpRequestDoer) *DlArchive {
 	return &DlArchive{
 		HTTPClient: client,
 		BaseURL:    "https://uptobox.dlarchive.my.id",
@@ -134,10 +131,14 @@ func (d *DlArchive) items(ctx context.Context) ([]dlarchiveapi.DlArchiveItem, er
 	)
 	for {
 		limit := 200
-		var page dlarchiveapi.DlArchiveListResponse
 		params := &dlarchiveapi.FilesApiParams{Action: dlarchiveapi.List, Limit: &limit, Offset: &offset}
-		if err := d.filesAPI(ctx, params, &page); err != nil {
+		body, err := d.filesAPI(ctx, params)
+		if err != nil {
 			return nil, err
+		}
+		page, err := body.AsDlArchiveListResponse()
+		if err != nil {
+			return nil, fmt.Errorf("dlarchive: %s: %w", params.Action, err)
 		}
 		items = append(items, page.Items...)
 		offset += len(page.Items)
@@ -152,35 +153,51 @@ func (d *DlArchive) items(ctx context.Context) ([]dlarchiveapi.DlArchiveItem, er
 
 // FileURL resolves the direct download URL of an item.
 func (d *DlArchive) FileURL(ctx context.Context, id string) (string, error) {
-	var answer dlarchiveapi.DlArchiveFileURLResponse
 	params := &dlarchiveapi.FilesApiParams{Action: dlarchiveapi.FileUrl, Id: &id}
-	if err := d.filesAPI(ctx, params, &answer); err != nil {
+	body, err := d.filesAPI(ctx, params)
+	if err != nil {
 		return "", err
 	}
-	if !answer.Ok || answer.Url == "" {
+	answer, err := body.AsDlArchiveFileURLResponse()
+	if err != nil {
+		return "", fmt.Errorf("dlarchive: %s: %w", params.Action, err)
+	}
+	failure, err := body.AsDlArchiveErrorResponse()
+	if err != nil {
+		return "", fmt.Errorf("dlarchive: %s: %w", params.Action, err)
+	}
+	if !bool(failure.Ok) || answer.Url == "" {
 		return "", fmt.Errorf("dlarchive: no download URL for %s", id)
 	}
 	return answer.Url, nil
 }
 
-func (d *DlArchive) filesAPI(ctx context.Context, params *dlarchiveapi.FilesApiParams, target any) error {
-	client, err := dlarchiveapi.NewClient(d.BaseURL+"/", dlarchiveapi.WithHTTPClient(d.HTTPClient))
+func (d *DlArchive) filesAPI(ctx context.Context, params *dlarchiveapi.FilesApiParams) (*dlarchiveapi.FilesApi200JSONResponseBody, error) {
+	if d.HTTPClient == nil {
+		return nil, errors.New("dlarchive: no HTTP client is configured")
+	}
+	accept := "application/json"
+	params.Accept = &accept
+	client, err := dlarchiveapi.NewClient(d.BaseURL, dlarchiveapi.WithHTTPClient(d.HTTPClient))
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("dlarchive: %s: %w", params.Action, err)
 	}
-	var endpoint string
-	capture := func(_ context.Context, req *http.Request) error {
-		req.Header.Set("Accept", "application/json")
-		endpoint = req.URL.String()
-		return nil
-	}
-	resp, err := client.FilesApi(ctx, params, capture)
+	resp, err := client.FilesApi(ctx, params)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("dlarchive: %s: %w", params.Action, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("dlarchive: %s: %s", path.Base(endpoint), resp.Status)
+	if resp.StatusCode != 200 {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("dlarchive: %s: %s", params.Action, resp.Status)
 	}
-	return legacyDecodeError(json.NewDecoder(resp.Body).Decode(target))
+	resp.Body = boundBody(resp.Body, dlArchiveMaxResponseBytes)
+	forceJSONContentType(resp.Header)
+	parsed, err := dlarchiveapi.ParseFilesApiResponse(resp)
+	if err != nil {
+		return nil, fmt.Errorf("dlarchive: %s: %w", params.Action, err)
+	}
+	if parsed.JSON200 == nil {
+		return nil, fmt.Errorf("dlarchive: %s: response is not JSON", params.Action)
+	}
+	return parsed.JSON200, nil
 }

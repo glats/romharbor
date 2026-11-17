@@ -3,8 +3,9 @@ package romsource
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/http"
+	"io"
 	"net/url"
 	"path"
 	"sort"
@@ -15,21 +16,58 @@ import (
 	"app.ddd/internal/domain/rom"
 )
 
+const archiveOrgMaxMetadataBytes = 64 << 20
+
+var errBodyTooLarge = errors.New("response body exceeds the size limit")
+
+type boundedReader struct {
+	body      io.Reader
+	remaining int64
+	limit     int64
+}
+
+func (b *boundedReader) Read(p []byte) (int, error) {
+	if b.remaining <= 0 {
+		var probe [1]byte
+		n, err := b.body.Read(probe[:])
+		if n > 0 {
+			return 0, fmt.Errorf("%w (%d bytes)", errBodyTooLarge, b.limit)
+		}
+		return 0, err
+	}
+	if int64(len(p)) > b.remaining {
+		p = p[:b.remaining]
+	}
+	n, err := b.body.Read(p)
+	b.remaining -= int64(n)
+	return n, err
+}
+
+func boundBody(body io.ReadCloser, limit int64) io.ReadCloser {
+	return struct {
+		io.Reader
+		io.Closer
+	}{&boundedReader{body: body, remaining: limit, limit: limit}, body}
+}
+
+func forceJSONContentType(header map[string][]string) {
+	if header != nil {
+		header["Content-Type"] = []string{"application/json"}
+	}
+}
+
 // ArchiveOrg serves games from Internet Archive items. The curated item list
 // holds the per-game sets whose file listing is the catalog: every file in
 // those items is one game with its own checksum and direct download URL.
 type ArchiveOrg struct {
-	HTTPClient *http.Client
+	HTTPClient archiveorgapi.HttpRequestDoer
 	BaseURL    string
 	// Sets maps a platform slug to the Internet Archive items that hold it.
 	Sets map[string][]string
 }
 
 // NewArchiveOrg returns the Internet Archive source with the curated sets.
-func NewArchiveOrg(client *http.Client) *ArchiveOrg {
-	if client == nil {
-		client = http.DefaultClient
-	}
+func NewArchiveOrg(client archiveorgapi.HttpRequestDoer) *ArchiveOrg {
 	return &ArchiveOrg{
 		HTTPClient: client,
 		BaseURL:    "https://archive.org",
@@ -141,7 +179,7 @@ func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.
 	for _, f := range meta.Files {
 		var size sizeValue
 		if err := size.UnmarshalJSON(f.Size); err != nil {
-			return nil, fmt.Errorf("metadata %s: %w", item, legacyFileSizeError(err))
+			return nil, fmt.Errorf("metadata %s: size of %s: %w", item, f.Name, err)
 		}
 		if !rom.IsGameFile(f.Name) {
 			continue
@@ -173,21 +211,36 @@ func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.
 }
 
 func (a *ArchiveOrg) metadata(ctx context.Context, item string) (*archiveorgapi.ItemMetadata, error) {
-	client, err := archiveorgapi.NewClient(a.BaseURL+"/", archiveorgapi.WithHTTPClient(a.HTTPClient))
+	if a.HTTPClient == nil {
+		return nil, errors.New("no HTTP client is configured")
+	}
+	client, err := archiveorgapi.NewClient(a.BaseURL, archiveorgapi.WithHTTPClient(a.HTTPClient))
 	if err != nil {
 		return nil, err
 	}
 	resp, err := client.GetItemMetadata(ctx, item)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("metadata %s: %w", item, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != 200 {
+		_ = resp.Body.Close()
 		return nil, fmt.Errorf("metadata %s: %s", item, resp.Status)
 	}
-	var meta archiveorgapi.ItemMetadata
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
-		return nil, fmt.Errorf("metadata %s: %w", item, legacyArchiveDecodeError(err, &meta))
+	resp.Body = boundBody(resp.Body, archiveOrgMaxMetadataBytes)
+	forceJSONContentType(resp.Header)
+	parsed, err := archiveorgapi.ParseGetItemMetadataResponse(resp)
+	if err != nil {
+		return nil, fmt.Errorf("metadata %s: %w", item, err)
+	}
+	if parsed.JSON200 == nil {
+		return nil, fmt.Errorf("metadata %s: response is not JSON", item)
+	}
+	if notFound, err := parsed.JSON200.AsItemNotFound(); err == nil && notFound != nil && len(notFound) == 0 {
+		return nil, fmt.Errorf("metadata %s: item not found (empty array response)", item)
+	}
+	meta, err := parsed.JSON200.AsItemMetadata()
+	if err != nil {
+		return nil, fmt.Errorf("metadata %s: %w", item, err)
 	}
 	return &meta, nil
 }

@@ -2,6 +2,7 @@ package romsource
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -108,9 +109,9 @@ func TestArchiveOrgClientTreatsEmptyNotFoundArrayAsError(t *testing.T) {
 	source.Sets = map[string][]string{"nes": {"missing-item"}}
 
 	_, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
-	prefix := "archive.org missing-item: metadata missing-item: "
-	if err == nil || !strings.HasPrefix(err.Error(), prefix) {
-		t.Fatalf("err = %v, want prefix %q", err, prefix)
+	want := "archive.org missing-item: metadata missing-item: item not found (empty array response)"
+	if err == nil || err.Error() != want {
+		t.Fatalf("err = %v, want %q", err, want)
 	}
 }
 
@@ -275,7 +276,7 @@ func TestDlArchiveClientReportsListStatus(t *testing.T) {
 	source.BaseURL = server.URL
 
 	_, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
-	want := "dlarchive: files_api.php?action=list&limit=200&offset=0: 500 Internal Server Error"
+	want := "dlarchive: list: 500 Internal Server Error"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
 	}
@@ -368,7 +369,7 @@ func TestDlArchiveClientReportsFileURLStatus(t *testing.T) {
 	source.BaseURL = server.URL
 
 	_, err := source.FileURL(context.Background(), "abc/1")
-	want := "dlarchive: files_api.php?action=file-url&id=abc%2F1: 404 Not Found"
+	want := "dlarchive: file-url: 404 Not Found"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
 	}
@@ -393,7 +394,7 @@ func TestDlArchiveClientUsesInjectedHTTPClient(t *testing.T) {
 	}
 }
 
-func TestArchiveOrgClientPreservesTrailingSlashBaseURL(t *testing.T) {
+func TestArchiveOrgClientTrailingSlashBaseURLSendsNoDoubleSlash(t *testing.T) {
 	var log requestLog
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.record(r)
@@ -409,12 +410,12 @@ func TestArchiveOrgClientPreservesTrailingSlashBaseURL(t *testing.T) {
 		t.Fatalf("search: %v", err)
 	}
 	reqs := log.snapshot()
-	if len(reqs) != 1 || reqs[0].URL.EscapedPath() != "//metadata/item%20one" {
-		t.Fatalf("requests = %+v, want path //metadata/item%%20one", reqs)
+	if len(reqs) != 1 || reqs[0].URL.EscapedPath() != "/metadata/item%20one" {
+		t.Fatalf("requests = %+v, want path /metadata/item%%20one", reqs)
 	}
 }
 
-func TestDlArchiveClientPreservesTrailingSlashBaseURL(t *testing.T) {
+func TestDlArchiveClientTrailingSlashBaseURLSendsNoDoubleSlash(t *testing.T) {
 	var log requestLog
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		log.record(r)
@@ -429,8 +430,8 @@ func TestDlArchiveClientPreservesTrailingSlashBaseURL(t *testing.T) {
 		t.Fatalf("file url: %v", err)
 	}
 	reqs := log.snapshot()
-	if len(reqs) != 1 || reqs[0].URL.EscapedPath() != "//files_api.php" {
-		t.Fatalf("requests = %+v, want path //files_api.php", reqs)
+	if len(reqs) != 1 || reqs[0].URL.EscapedPath() != "/files_api.php" {
+		t.Fatalf("requests = %+v, want path /files_api.php", reqs)
 	}
 }
 
@@ -447,104 +448,9 @@ func TestDlArchiveClientReportsStatusWithoutTransportRequest(t *testing.T) {
 	source.BaseURL = "http://dlarchive.invalid"
 
 	_, err := source.FileURL(context.Background(), "abc")
-	want := "dlarchive: files_api.php?action=file-url&id=abc: 404 Not Found"
+	want := "dlarchive: file-url: 404 Not Found"
 	if err == nil || err.Error() != want {
 		t.Fatalf("err = %v, want %q", err, want)
-	}
-}
-
-func TestArchiveOrgClientKeepsLegacyDecodeLabels(t *testing.T) {
-	cases := []struct {
-		name string
-		body string
-		want string
-	}{
-		{"boolean size", `{"files":[{"name":"A (USA).zip","size":true}]}`, "json: cannot unmarshal bool into Go struct field itemFile.files.size of type int64"},
-		{"fractional size", `{"files":[{"name":"A (USA).zip","size":1.5}]}`, "json: cannot unmarshal number 1.5 into Go struct field itemFile.files.size of type int64"},
-		{"empty array", `[]`, "json: cannot unmarshal array into Go value of type romsource.itemMetadata"},
-		{"files string", `{"files":"x"}`, "json: cannot unmarshal string into Go struct field itemMetadata.files of type []romsource.itemFile"},
-		{"file number", `{"files":[1]}`, "json: cannot unmarshal number into Go struct field itemMetadata.files of type romsource.itemFile"},
-		{"name number", `{"files":[{"name":5}]}`, "json: cannot unmarshal number into Go struct field itemFile.files.name of type string"},
-		{"md5 number", `{"files":[{"name":"A (USA).zip","md5":5}]}`, "json: cannot unmarshal number into Go struct field itemFile.files.md5 of type string"},
-		{"size before md5", `{"files":[{"name":"A (USA).zip","size":true},{"name":"B (USA).zip","md5":5}]}`, "json: cannot unmarshal bool into Go struct field itemFile.files.size of type int64"},
-		{"md5 before size", `{"files":[{"name":"A (USA).zip","md5":5},{"name":"B (USA).zip","size":true}]}`, "json: cannot unmarshal bool into Go struct field itemFile.files.size of type int64"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte(tc.body))
-			}))
-			defer server.Close()
-
-			source := NewArchiveOrg(server.Client())
-			source.BaseURL = server.URL
-			source.Sets = map[string][]string{"nes": {"item-one"}}
-
-			_, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
-			want := "archive.org item-one: metadata item-one: " + tc.want
-			if err == nil || err.Error() != want {
-				t.Fatalf("err = %v, want %q", err, want)
-			}
-		})
-	}
-}
-
-func TestDlArchiveClientKeepsLegacyDecodeLabels(t *testing.T) {
-	cases := []struct {
-		name string
-		body string
-		want string
-	}{
-		{"string size", `{"ok":true,"items":[{"id":"a","filename":"A (USA).zip","size":"1","folder":"X/Nintendo_Nes"}],"total":1}`, "json: cannot unmarshal string into Go struct field dlArchiveItem.items.size of type int64"},
-		{"items object", `{"ok":true,"items":{},"total":1}`, "json: cannot unmarshal object into Go struct field .items of type []romsource.dlArchiveItem"},
-		{"ok string", `{"ok":"yes","items":[],"total":0}`, "json: cannot unmarshal string into Go struct field .ok of type bool"},
-		{"total string", `{"ok":true,"items":[],"total":"1"}`, "json: cannot unmarshal string into Go struct field .total of type int"},
-		{"item id number", `{"items":[{"id":1,"filename":"A (USA).zip","size":1,"folder":"X/Nintendo_Nes"}],"total":1}`, "json: cannot unmarshal number into Go struct field dlArchiveItem.items.id of type string"},
-		{"top array", `[]`, `json: cannot unmarshal array into Go value of type struct { OK bool "json:\"ok\""; Items []romsource.dlArchiveItem "json:\"items\""; Total int "json:\"total\"" }`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte(tc.body))
-			}))
-			defer server.Close()
-
-			source := NewDlArchive(server.Client())
-			source.BaseURL = server.URL
-
-			_, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
-			if err == nil || err.Error() != tc.want {
-				t.Fatalf("err = %v, want %q", err, tc.want)
-			}
-		})
-	}
-}
-
-func TestDlArchiveClientKeepsLegacyFileURLDecodeLabels(t *testing.T) {
-	cases := []struct {
-		name string
-		body string
-		want string
-	}{
-		{"url number", `{"ok":true,"url":5}`, "json: cannot unmarshal number into Go struct field .url of type string"},
-		{"ok string", `{"ok":"true","url":"u"}`, "json: cannot unmarshal string into Go struct field .ok of type bool"},
-		{"top array", `[]`, `json: cannot unmarshal array into Go value of type struct { OK bool "json:\"ok\""; URL string "json:\"url\"" }`},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte(tc.body))
-			}))
-			defer server.Close()
-
-			source := NewDlArchive(server.Client())
-			source.BaseURL = server.URL
-
-			_, err := source.FileURL(context.Background(), "abc")
-			if err == nil || err.Error() != tc.want {
-				t.Fatalf("err = %v, want %q", err, tc.want)
-			}
-		})
 	}
 }
 
@@ -561,5 +467,300 @@ func TestArchiveOrgClientIgnoresUnreadMetadataFields(t *testing.T) {
 	games, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
 	if err != nil || len(games) != 0 {
 		t.Fatalf("games = %+v, err = %v; want no games and no error", games, err)
+	}
+}
+
+type repeatReader byte
+
+func (r repeatReader) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = byte(r)
+	}
+	return len(p), nil
+}
+
+type trackedBody struct {
+	io.Reader
+	closed bool
+}
+
+func (b *trackedBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+func paddedJSON(document string, total int64) io.Reader {
+	return io.MultiReader(strings.NewReader(document), io.LimitReader(repeatReader(' '), total-int64(len(document))))
+}
+
+func bodyClient(status string, code int, body io.ReadCloser) *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: code,
+			Status:     status,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       body,
+			Request:    r,
+		}, nil
+	})}
+}
+
+func TestArchiveOrgClientBoundsMetadataBody(t *testing.T) {
+	const document = `{"files":[{"name":"Example Game (USA).zip","size":5}]}`
+	for _, tc := range []struct {
+		name    string
+		total   int64
+		tooLong bool
+	}{
+		{"at the limit", archiveOrgMaxMetadataBytes, false},
+		{"one byte over", archiveOrgMaxMetadataBytes + 1, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := &trackedBody{Reader: paddedJSON(document, tc.total)}
+			source := NewArchiveOrg(bodyClient("200 OK", http.StatusOK, body))
+			source.BaseURL = "http://archive.invalid"
+			source.Sets = map[string][]string{"nes": {"item-one"}}
+
+			games, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
+			if !body.closed {
+				t.Error("body not closed")
+			}
+			if tc.tooLong {
+				if !errors.Is(err, errBodyTooLarge) || !strings.HasPrefix(err.Error(), "archive.org item-one: metadata item-one: ") {
+					t.Fatalf("err = %v, want wrapped errBodyTooLarge", err)
+				}
+				return
+			}
+			if err != nil || len(games) != 1 {
+				t.Fatalf("games = %+v, err = %v", games, err)
+			}
+		})
+	}
+}
+
+func TestDlArchiveClientBoundsResponseBody(t *testing.T) {
+	const document = `{"ok":true,"items":[{"id":"a1","filename":"Example One (USA).zip","folder":"Mirror/Nintendo_Nes"}],"total":1}`
+	const fileURL = `{"ok":true,"url":"https://files.example.invalid/one.zip"}`
+	for _, tc := range []struct {
+		name    string
+		total   int64
+		tooLong bool
+	}{
+		{"at the limit", dlArchiveMaxResponseBytes, false},
+		{"one byte over", dlArchiveMaxResponseBytes + 1, true},
+	} {
+		t.Run("list "+tc.name, func(t *testing.T) {
+			body := &trackedBody{Reader: paddedJSON(document, tc.total)}
+			source := NewDlArchive(bodyClient("200 OK", http.StatusOK, body))
+			source.BaseURL = "http://dlarchive.invalid"
+
+			games, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
+			if !body.closed {
+				t.Error("body not closed")
+			}
+			if tc.tooLong {
+				if !errors.Is(err, errBodyTooLarge) || !strings.HasPrefix(err.Error(), "dlarchive: list: ") {
+					t.Fatalf("err = %v, want wrapped errBodyTooLarge", err)
+				}
+				return
+			}
+			if err != nil || len(games) != 1 {
+				t.Fatalf("games = %+v, err = %v", games, err)
+			}
+		})
+		t.Run("file url "+tc.name, func(t *testing.T) {
+			body := &trackedBody{Reader: paddedJSON(fileURL, tc.total)}
+			source := NewDlArchive(bodyClient("200 OK", http.StatusOK, body))
+			source.BaseURL = "http://dlarchive.invalid"
+
+			got, err := source.FileURL(context.Background(), "abc")
+			if !body.closed {
+				t.Error("body not closed")
+			}
+			if tc.tooLong {
+				if !errors.Is(err, errBodyTooLarge) || !strings.HasPrefix(err.Error(), "dlarchive: file-url: ") {
+					t.Fatalf("err = %v, want wrapped errBodyTooLarge", err)
+				}
+				return
+			}
+			if err != nil || got != "https://files.example.invalid/one.zip" {
+				t.Fatalf("url = %q, err = %v", got, err)
+			}
+		})
+	}
+}
+
+func TestProviderClientsCloseBodyOnStatusError(t *testing.T) {
+	archiveBody := &trackedBody{Reader: strings.NewReader("busy")}
+	archive := NewArchiveOrg(bodyClient("503 Service Unavailable", http.StatusServiceUnavailable, archiveBody))
+	archive.BaseURL = "http://archive.invalid"
+	archive.Sets = map[string][]string{"nes": {"item-one"}}
+	if _, err := archive.Search(context.Background(), rom.Query{Platform: "nes"}); err == nil || !archiveBody.closed {
+		t.Fatalf("archive.org err = %v, closed = %t", err, archiveBody.closed)
+	}
+
+	dlBody := &trackedBody{Reader: strings.NewReader("busy")}
+	dl := NewDlArchive(bodyClient("503 Service Unavailable", http.StatusServiceUnavailable, dlBody))
+	dl.BaseURL = "http://dlarchive.invalid"
+	if _, err := dl.FileURL(context.Background(), "abc"); err == nil || !dlBody.closed {
+		t.Fatalf("dlarchive err = %v, closed = %t", err, dlBody.closed)
+	}
+}
+
+func TestProviderClientsRefuseMissingHTTPClient(t *testing.T) {
+	archive := NewArchiveOrg(nil)
+	archive.BaseURL = "http://archive.invalid"
+	archive.Sets = map[string][]string{"nes": {"item-one"}}
+	_, err := archive.Search(context.Background(), rom.Query{Platform: "nes"})
+	if want := "archive.org item-one: no HTTP client is configured"; err == nil || err.Error() != want {
+		t.Errorf("archive.org err = %v, want %q", err, want)
+	}
+
+	dl := NewDlArchive(nil)
+	dl.BaseURL = "http://dlarchive.invalid"
+	_, err = dl.Search(context.Background(), rom.Query{Platform: "nes"})
+	if want := "dlarchive: no HTTP client is configured"; err == nil || err.Error() != want {
+		t.Errorf("dlarchive search err = %v, want %q", err, want)
+	}
+	_, err = dl.FileURL(context.Background(), "abc")
+	if want := "dlarchive: no HTTP client is configured"; err == nil || err.Error() != want {
+		t.Errorf("dlarchive file url err = %v, want %q", err, want)
+	}
+}
+
+type doerFunc func(*http.Request) (*http.Response, error)
+
+func (f doerFunc) Do(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestProviderClientsAcceptAnyRequestDoer(t *testing.T) {
+	archive := NewArchiveOrg(doerFunc(func(r *http.Request) (*http.Response, error) {
+		return cannedJSON(r, `{"files":[{"name":"Example Game (USA).zip","size":5}]}`), nil
+	}))
+	archive.BaseURL = "http://archive.invalid"
+	archive.Sets = map[string][]string{"nes": {"example-item"}}
+	if games, err := archive.Search(context.Background(), rom.Query{Platform: "nes"}); err != nil || len(games) != 1 {
+		t.Errorf("archive.org games = %+v, err = %v", games, err)
+	}
+
+	dl := NewDlArchive(doerFunc(func(r *http.Request) (*http.Response, error) {
+		return cannedJSON(r, `{"ok":true,"url":"https://files.example.invalid/one.zip"}`), nil
+	}))
+	dl.BaseURL = "http://dlarchive.invalid"
+	if got, err := dl.FileURL(context.Background(), "abc"); err != nil || got != "https://files.example.invalid/one.zip" {
+		t.Errorf("dlarchive url = %q, err = %v", got, err)
+	}
+}
+
+func TestArchiveOrgClientReportsContractMismatchesFromGeneratedTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"boolean size", `{"files":[{"name":"A (USA).zip","size":true}]}`},
+		{"fractional size", `{"files":[{"name":"A (USA).zip","size":1.5}]}`},
+		{"files string", `{"files":"x"}`},
+		{"file number", `{"files":[1]}`},
+		{"name number", `{"files":[{"name":5}]}`},
+		{"md5 number", `{"files":[{"name":"A (USA).zip","md5":5}]}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := NewArchiveOrg(bodyClient("200 OK", http.StatusOK, io.NopCloser(strings.NewReader(tc.body))))
+			source.BaseURL = "http://archive.invalid"
+			source.Sets = map[string][]string{"nes": {"item-one"}}
+
+			_, err := source.Search(context.Background(), rom.Query{Platform: "nes"})
+			var typed *json.UnmarshalTypeError
+			if !errors.As(err, &typed) || !strings.HasPrefix(err.Error(), "archive.org item-one: metadata item-one: ") {
+				t.Fatalf("err = %v, want wrapped *json.UnmarshalTypeError", err)
+			}
+			for _, legacy := range []string{"romsource.", "itemFile", "itemMetadata"} {
+				if strings.Contains(err.Error(), legacy) {
+					t.Errorf("err = %v carries legacy label %q", err, legacy)
+				}
+			}
+		})
+	}
+}
+
+func TestDlArchiveClientReportsContractMismatchesFromGeneratedTypes(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		body   string
+		list   bool
+		prefix string
+	}{
+		{"string size", `{"ok":true,"items":[{"id":"a","filename":"A (USA).zip","size":"1","folder":"X/Nintendo_Nes"}],"total":1}`, true, "dlarchive: list: "},
+		{"items object", `{"ok":true,"items":{},"total":1}`, true, "dlarchive: list: "},
+		{"ok string", `{"ok":"yes","items":[],"total":0}`, true, "dlarchive: list: "},
+		{"total string", `{"ok":true,"items":[],"total":"1"}`, true, "dlarchive: list: "},
+		{"item id number", `{"items":[{"id":1,"filename":"A (USA).zip"}],"total":1}`, true, "dlarchive: list: "},
+		{"list top array", `[]`, true, "dlarchive: list: "},
+		{"url number", `{"ok":true,"url":5}`, false, "dlarchive: file-url: "},
+		{"file url ok string", `{"ok":"true","url":"u"}`, false, "dlarchive: file-url: "},
+		{"file url top array", `[]`, false, "dlarchive: file-url: "},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			source := NewDlArchive(bodyClient("200 OK", http.StatusOK, io.NopCloser(strings.NewReader(tc.body))))
+			source.BaseURL = "http://dlarchive.invalid"
+
+			var err error
+			if tc.list {
+				_, err = source.Search(context.Background(), rom.Query{Platform: "nes"})
+			} else {
+				_, err = source.FileURL(context.Background(), "abc")
+			}
+			var typed *json.UnmarshalTypeError
+			if !errors.As(err, &typed) || !strings.HasPrefix(err.Error(), tc.prefix) {
+				t.Fatalf("err = %v, want %q prefix wrapping *json.UnmarshalTypeError", err, tc.prefix)
+			}
+			for _, legacy := range []string{"romsource.", "dlArchiveItem", "struct {"} {
+				if strings.Contains(err.Error(), legacy) {
+					t.Errorf("err = %v carries legacy label %q", err, legacy)
+				}
+			}
+		})
+	}
+}
+
+func TestDlArchiveClientReportsErrorVariantAsMissingFileURL(t *testing.T) {
+	for name, body := range map[string]string{
+		"failure payload":            `{"ok":false,"error":"not found"}`,
+		"failure payload with url":   `{"ok":false,"url":"https://files.example.invalid/one.zip"}`,
+		"success without url":        `{"ok":true}`,
+		"success with an empty url":  `{"ok":true,"url":""}`,
+		"payload without ok present": `{"url":"https://files.example.invalid/one.zip"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			source := NewDlArchive(bodyClient("200 OK", http.StatusOK, io.NopCloser(strings.NewReader(body))))
+			source.BaseURL = "http://dlarchive.invalid"
+
+			_, err := source.FileURL(context.Background(), "abc")
+			if want := "dlarchive: no download URL for abc"; err == nil || err.Error() != want {
+				t.Fatalf("err = %v, want %q", err, want)
+			}
+		})
+	}
+}
+
+func TestProviderClientsDecodeJSONWithoutContentType(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Status:     "200 OK",
+			Header:     http.Header{},
+			Body:       io.NopCloser(strings.NewReader(`{"ok":true,"url":"https://files.example.invalid/one.zip","files":[]}`)),
+			Request:    r,
+		}, nil
+	})}
+	dl := NewDlArchive(client)
+	dl.BaseURL = "http://dlarchive.invalid"
+	if got, err := dl.FileURL(context.Background(), "abc"); err != nil || got != "https://files.example.invalid/one.zip" {
+		t.Errorf("dlarchive url = %q, err = %v", got, err)
+	}
+	archive := NewArchiveOrg(client)
+	archive.BaseURL = "http://archive.invalid"
+	archive.Sets = map[string][]string{"nes": {"item-one"}}
+	if _, err := archive.Search(context.Background(), rom.Query{Platform: "nes"}); err != nil {
+		t.Errorf("archive.org err = %v", err)
 	}
 }

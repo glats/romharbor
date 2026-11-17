@@ -20,8 +20,8 @@ paths:
         (https://archive.org/developers/md-read.html) documents an empty JSON array
         for an unknown identifier and an error field for other failures. The
         contract models both 200 variants. ROMHarbor reads only files from the item
-        object and reports the empty-array variant as a decode error, which preserves
-        the baseline behavior. The extended_err parameter is not sent by ROMHarbor.
+        object and reports the empty-array variant as an item-not-found error. The
+        extended_err parameter is not sent by ROMHarbor.
       parameters:
         - name: identifier
           in: path
@@ -37,13 +37,16 @@ paths:
               schema:
                 oneOf:
                   - $ref: '#/components/schemas/ItemMetadata'
-                  - type: array
-                    items: {}
-                    maxItems: 0
+                  - $ref: '#/components/schemas/ItemNotFound'
         default:
           description: Any other status. The adapter reports the HTTP status only.
 components:
   schemas:
+    ItemNotFound:
+      type: array
+      description: Empty array the API answers for an unknown identifier.
+      items: {}
+      maxItems: 0
     ItemMetadata:
       type: object
       description: Item record. ROMHarbor reads only files; other documented properties are not modeled.

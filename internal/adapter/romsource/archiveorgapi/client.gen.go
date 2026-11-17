@@ -33,8 +33,8 @@ type ItemMetadata struct {
 	Files []ItemFile `json:"files,omitempty"`
 }
 
-// GetItemMetadata200JSONResponseBody1 defines parameters for GetItemMetadata.
-type GetItemMetadata200JSONResponseBody1 = []interface{}
+// ItemNotFound Empty array the API answers for an unknown identifier.
+type ItemNotFound = []interface{}
 
 // GetItemMetadata200JSONResponseBody defines parameters for GetItemMetadata.
 type GetItemMetadata200JSONResponseBody struct {
@@ -67,22 +67,22 @@ func (t *GetItemMetadata200JSONResponseBody) MergeItemMetadata(v ItemMetadata) e
 	return err
 }
 
-// AsGetItemMetadata200JSONResponseBody1 returns the union data inside the GetItemMetadata200JSONResponseBody as a GetItemMetadata200JSONResponseBody1
-func (t GetItemMetadata200JSONResponseBody) AsGetItemMetadata200JSONResponseBody1() (GetItemMetadata200JSONResponseBody1, error) {
-	var body GetItemMetadata200JSONResponseBody1
+// AsItemNotFound returns the union data inside the GetItemMetadata200JSONResponseBody as a ItemNotFound
+func (t GetItemMetadata200JSONResponseBody) AsItemNotFound() (ItemNotFound, error) {
+	var body ItemNotFound
 	err := json.Unmarshal(t.union, &body)
 	return body, err
 }
 
-// FromGetItemMetadata200JSONResponseBody1 overwrites any union data inside the GetItemMetadata200JSONResponseBody as the provided GetItemMetadata200JSONResponseBody1
-func (t *GetItemMetadata200JSONResponseBody) FromGetItemMetadata200JSONResponseBody1(v GetItemMetadata200JSONResponseBody1) error {
+// FromItemNotFound overwrites any union data inside the GetItemMetadata200JSONResponseBody as the provided ItemNotFound
+func (t *GetItemMetadata200JSONResponseBody) FromItemNotFound(v ItemNotFound) error {
 	b, err := json.Marshal(v)
 	t.union = b
 	return err
 }
 
-// MergeGetItemMetadata200JSONResponseBody1 performs a merge with any union data inside the GetItemMetadata200JSONResponseBody, using the provided GetItemMetadata200JSONResponseBody1
-func (t *GetItemMetadata200JSONResponseBody) MergeGetItemMetadata200JSONResponseBody1(v GetItemMetadata200JSONResponseBody1) error {
+// MergeItemNotFound performs a merge with any union data inside the GetItemMetadata200JSONResponseBody, using the provided ItemNotFound
+func (t *GetItemMetadata200JSONResponseBody) MergeItemNotFound(v ItemNotFound) error {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -182,8 +182,8 @@ type ClientInterface interface {
 	// (https://archive.org/developers/md-read.html) documents an empty JSON array
 	// for an unknown identifier and an error field for other failures. The
 	// contract models both 200 variants. ROMHarbor reads only files from the item
-	// object and reports the empty-array variant as a decode error, which preserves
-	// the baseline behavior. The extended_err parameter is not sent by ROMHarbor.
+	// object and reports the empty-array variant as an item-not-found error. The
+	// extended_err parameter is not sent by ROMHarbor.
 	//
 	// Corresponds with GET /metadata/{identifier} (the `GetItemMetadata` operationId).
 	GetItemMetadata(ctx context.Context, identifier string, reqEditors ...RequestEditorFn) (*http.Response, error)
@@ -195,8 +195,8 @@ type ClientInterface interface {
 // (https://archive.org/developers/md-read.html) documents an empty JSON array
 // for an unknown identifier and an error field for other failures. The
 // contract models both 200 variants. ROMHarbor reads only files from the item
-// object and reports the empty-array variant as a decode error, which preserves
-// the baseline behavior. The extended_err parameter is not sent by ROMHarbor.
+// object and reports the empty-array variant as an item-not-found error. The
+// extended_err parameter is not sent by ROMHarbor.
 //
 // Corresponds with GET /metadata/{identifier} (the `GetItemMetadata` operationId).
 func (c *Client) GetItemMetadata(ctx context.Context, identifier string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -294,8 +294,8 @@ type ClientWithResponsesInterface interface {
 	// (https://archive.org/developers/md-read.html) documents an empty JSON array
 	// for an unknown identifier and an error field for other failures. The
 	// contract models both 200 variants. ROMHarbor reads only files from the item
-	// object and reports the empty-array variant as a decode error, which preserves
-	// the baseline behavior. The extended_err parameter is not sent by ROMHarbor.
+	// object and reports the empty-array variant as an item-not-found error. The
+	// extended_err parameter is not sent by ROMHarbor.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
@@ -350,8 +350,8 @@ func (r GetItemMetadataResponse) ContentType() string {
 // (https://archive.org/developers/md-read.html) documents an empty JSON array
 // for an unknown identifier and an error field for other failures. The
 // contract models both 200 variants. ROMHarbor reads only files from the item
-// object and reports the empty-array variant as a decode error, which preserves
-// the baseline behavior. The extended_err parameter is not sent by ROMHarbor.
+// object and reports the empty-array variant as an item-not-found error. The
+// extended_err parameter is not sent by ROMHarbor.
 //
 // Returns a wrapper object for the known response body format(s).
 //

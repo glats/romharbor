@@ -95,6 +95,9 @@ type FilesApiParams struct {
 
 	// Id Item identifier used with action=file-url.
 	Id *string `form:"id,omitempty" json:"id,omitempty"`
+
+	// Accept Media type the endpoint is asked for; ROMHarbor sends application/json.
+	Accept *string `json:"Accept,omitempty"`
 }
 
 // FilesApiParamsAction defines parameters for FilesApi.
@@ -370,6 +373,19 @@ func NewFilesApiRequest(server string, params *FilesApiParams) (*http.Request, e
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+		if params.Accept != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Accept", *params.Accept, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Accept", headerParam0)
+		}
 	}
 
 	return req, nil
