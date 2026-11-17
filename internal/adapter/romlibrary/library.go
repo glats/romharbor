@@ -10,21 +10,22 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"app.ddd/internal/adapter/romfetch"
 	"app.ddd/internal/domain/rom"
 )
 
 type Library struct {
-	installOnce  sync.Once
-	installGate  chan struct{}
-	Root         string
-	HTTPClient   *http.Client
-	SevenZipPath string
+	installOnce sync.Once
+	installGate chan struct{}
+	fetcher     *romfetch.Fetcher
+	limits      extractLimits
+	Root        string
+	HTTPClient  romfetch.Doer
 }
 
 func (l *Library) PlatformDir(p rom.Platform) (string, error) {
@@ -36,7 +37,13 @@ func (l *Library) PlatformDir(p rom.Platform) (string, error) {
 }
 
 func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress func(downloaded, total int64)) (rom.InstallResult, error) {
-	l.installOnce.Do(func() { l.installGate = make(chan struct{}, 1) })
+	l.installOnce.Do(func() {
+		l.installGate = make(chan struct{}, 1)
+		l.fetcher = romfetch.New(l.HTTPClient)
+		if l.limits == (extractLimits{}) {
+			l.limits = defaultExtractLimits
+		}
+	})
 	select {
 	case l.installGate <- struct{}{}:
 		defer func() { <-l.installGate }()
@@ -74,11 +81,7 @@ func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress 
 	if err != nil {
 		return rom.InstallResult{}, err
 	}
-	if archive {
-		if err := requireExtractor(ext, l.sevenZipBinary()); err != nil {
-			return rom.InstallResult{}, err
-		}
-	} else if skipPresent(target, req.File.Size) {
+	if !archive && skipPresent(target, req.File.Size) {
 		return rom.InstallResult{Path: target, Size: req.File.Size, Skipped: true}, nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -115,7 +118,7 @@ func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, arc
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	romPath, romExt, err := extractROM(ctx, l.sevenZipBinary(), archiveExt, archivePath, workDir, exts)
+	romPath, romExt, err := extractROM(ctx, l.limits, archiveExt, archivePath, workDir, exts)
 	if err != nil {
 		_ = os.Remove(archivePath)
 		return rom.InstallResult{}, err
@@ -138,20 +141,6 @@ func (l *Library) targetPath(dir, base, ext string) (string, error) {
 		return "", fmt.Errorf("romcatalog: target %q escapes library root %q", target, root)
 	}
 	return target, nil
-}
-
-func (l *Library) client() *http.Client {
-	if l.HTTPClient != nil {
-		return l.HTTPClient
-	}
-	return http.DefaultClient
-}
-
-func (l *Library) sevenZipBinary() string {
-	if l.SevenZipPath != "" {
-		return l.SevenZipPath
-	}
-	return "7z"
 }
 
 func tempPath(dir, name string) string {
@@ -179,31 +168,22 @@ func (l *Library) fetch(ctx context.Context, file rom.File, part string, progres
 	if info, err := os.Stat(part); err == nil {
 		offset = info.Size()
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, file.URL, nil)
-	if err != nil {
+	stream, err := l.fetcher.Open(ctx, file.URL, offset)
+	var urlErr *romfetch.URLError
+	switch {
+	case errors.As(err, &urlErr):
 		return fmt.Errorf("romcatalog: build request for %s: %w", file.Name, err)
-	}
-	if offset > 0 {
-		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
-	}
-	resp, err := l.client().Do(req)
-	if err != nil {
+	case errors.Is(err, romfetch.ErrRangeNotSatisfiable):
+		_ = os.Remove(part)
+		return fmt.Errorf("romcatalog: download %s: partial file no longer matches the source, discarded; retry", file.Name)
+	case err != nil:
 		return fmt.Errorf("romcatalog: download %s: %w", file.Name, err)
 	}
-	defer func() { _ = resp.Body.Close() }()
-
-	resuming := offset > 0 && resp.StatusCode == http.StatusPartialContent
-	if !resuming && resp.StatusCode != http.StatusOK {
-		if offset > 0 && resp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
-			_ = os.Remove(part)
-			return fmt.Errorf("romcatalog: download %s: partial file no longer matches the source, discarded; retry", file.Name)
-		}
-		return fmt.Errorf("romcatalog: download %s: unexpected HTTP status %s", file.Name, resp.Status)
-	}
+	defer func() { _ = stream.Body.Close() }()
 
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	var done int64
-	if resuming {
+	if stream.Partial {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 		done = offset
 	}
@@ -212,7 +192,7 @@ func (l *Library) fetch(ctx context.Context, file rom.File, part string, progres
 		return fmt.Errorf("romcatalog: open %s: %w", part, err)
 	}
 	w := &progressWriter{w: out, downloaded: done, total: max(file.Size, 0), report: progress}
-	_, copyErr := io.Copy(w, resp.Body)
+	_, copyErr := io.Copy(w, stream.Body)
 	if copyErr == nil {
 		copyErr = out.Sync()
 	}

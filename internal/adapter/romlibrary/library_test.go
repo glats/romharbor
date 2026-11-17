@@ -12,13 +12,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"app.ddd/internal/adapter/romfetch"
 	"app.ddd/internal/domain/rom"
 )
 
@@ -362,19 +362,9 @@ func TestInstallExtractsZipROM(t *testing.T) {
 }
 
 func TestInstallExtractsSevenZipROM(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh not available to stand in for 7z")
-	}
-	bin := filepath.Join(t.TempDir(), "7z")
-	script := "#!/bin/sh\n" +
-		"for arg in \"$@\"; do\n  case \"$arg\" in\n    -o*) dest=\"${arg#-o}\" ;;\n  esac\ndone\n" +
-		"mkdir -p \"$dest/extras\"\nprintf 'seven-zip-rom' > \"$dest/extras/Game.gba\"\n"
-	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	srv := serve(t, servedBody([]byte("not-a-real-7z")))
+	archive := readFile(t, filepath.Join("testdata", "bundle.7z"))
+	srv := serve(t, servedBody(archive))
 	l, root := newLibrary(t)
-	l.SevenZipPath = bin
 
 	res, err := l.Install(context.Background(), rom.InstallRequest{
 		Platform: snesPlatform,
@@ -387,7 +377,7 @@ func TestInstallExtractsSevenZipROM(t *testing.T) {
 	if res.Path != want || !res.Extracted {
 		t.Errorf("result = %+v, want extracted ROM at %s", res, want)
 	}
-	if got := readFile(t, want); string(got) != "seven-zip-rom" {
+	if got := readFile(t, want); string(got) != "synthetic-rom" {
 		t.Errorf("installed bytes = %q", got)
 	}
 	files := installedFiles(t, root)
@@ -398,11 +388,10 @@ func TestInstallExtractsSevenZipROM(t *testing.T) {
 
 func TestInstallFailureInstallsNothing(t *testing.T) {
 	tests := []struct {
-		name     string
-		cancel   bool
-		sevenZip func(t *testing.T) string
-		file     func(url string) rom.File
-		wantErr  string
+		name    string
+		cancel  bool
+		file    func(url string) rom.File
+		wantErr string
 	}{
 		{
 			name:    "server error",
@@ -415,14 +404,6 @@ func TestInstallFailureInstallsNothing(t *testing.T) {
 			file:    func(url string) rom.File { return rom.File{Name: "Game.sfc", URL: url} },
 			wantErr: "context canceled",
 		},
-		{
-			name: "missing 7z binary",
-			sevenZip: func(t *testing.T) string {
-				return filepath.Join(t.TempDir(), "absent-7z")
-			},
-			file:    func(url string) rom.File { return rom.File{Name: "Bundle.7z", URL: url, Archive: true} },
-			wantErr: "7z",
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -430,9 +411,6 @@ func TestInstallFailureInstallsNothing(t *testing.T) {
 				http.Error(w, "boom", http.StatusInternalServerError)
 			})
 			l, root := newLibrary(t)
-			if tt.sevenZip != nil {
-				l.SevenZipPath = tt.sevenZip(t)
-			}
 			ctx := context.Background()
 			if tt.cancel {
 				var cancel context.CancelFunc
@@ -486,5 +464,86 @@ func TestInstallGenesisUsesMegadriveFolder(t *testing.T) {
 	}
 	if got := readFile(t, want); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
+	}
+}
+
+func TestInstallRejectsNonHTTPURLsBeforeAnyRequest(t *testing.T) {
+	for _, target := range []string{"file:///etc/passwd", "ftp://example.test/Game.sfc", "gopher://example.test/Game.sfc"} {
+		t.Run(target, func(t *testing.T) {
+			l, root := newLibrary(t)
+			var calls atomic.Int32
+			l.HTTPClient = doerFunc(func(*http.Request) (*http.Response, error) {
+				calls.Add(1)
+				return nil, errors.New("must not be reached")
+			})
+
+			_, err := l.Install(context.Background(), rom.InstallRequest{
+				Platform: snesPlatform,
+				File:     rom.File{Name: "Game.sfc", URL: target},
+			}, nil)
+
+			if !errors.Is(err, romfetch.ErrUnsupportedScheme) {
+				t.Fatalf("Install() error = %v, want an unsupported scheme error", err)
+			}
+			if n := calls.Load(); n != 0 {
+				t.Errorf("client calls = %d, want 0", n)
+			}
+			if files := installedFiles(t, root); len(files) != 0 {
+				t.Errorf("library files = %v, want none", files)
+			}
+		})
+	}
+}
+
+func TestInstallUsesTheDefaultFetcherWhenNoClientIsSet(t *testing.T) {
+	body := []byte("default-client-rom")
+	srv := serve(t, servedBody(body))
+	root := t.TempDir()
+	l := &Library{Root: root}
+
+	res, err := l.Install(context.Background(), rom.InstallRequest{
+		Platform: snesPlatform,
+		File:     rom.File{Name: "Game.sfc", Size: int64(len(body)), URL: srv.URL},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+		t.Errorf("installed bytes = %q, want %q", got, body)
+	}
+}
+
+func TestInstallAcceptsAStandardHTTPClient(t *testing.T) {
+	srv := serve(t, servedBody([]byte("std-client-rom")))
+	l := &Library{Root: t.TempDir(), HTTPClient: srv.Client()}
+
+	if _, err := l.Install(context.Background(), rom.InstallRequest{
+		Platform: snesPlatform,
+		File:     rom.File{Name: "Game.sfc", URL: srv.URL},
+	}, nil); err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+}
+
+type doerFunc func(*http.Request) (*http.Response, error)
+
+func (f doerFunc) Do(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestInstallRejectsAnArchiveOverTheExtractionCap(t *testing.T) {
+	archive := readFile(t, filepath.Join("testdata", "bundle.7z"))
+	srv := serve(t, servedBody(archive))
+	l, root := newLibrary(t)
+	l.limits = extractLimits{entries: defaultExtractLimits.entries, bytes: 4}
+
+	_, err := l.Install(context.Background(), rom.InstallRequest{
+		Platform: snesPlatform,
+		File:     rom.File{Name: "Bundle.7z", URL: srv.URL, Archive: true},
+	}, nil)
+
+	if !errors.Is(err, errExtractTooLarge) {
+		t.Fatalf("Install() error = %v, want errExtractTooLarge", err)
+	}
+	if files := installedFiles(t, root); len(files) != 0 {
+		t.Errorf("library files = %v, want none", files)
 	}
 }
