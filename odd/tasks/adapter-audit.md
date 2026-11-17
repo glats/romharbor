@@ -15,7 +15,7 @@ Criteria used by the audit (derived from the user's corrections and AGENTS.md): 
 ## Tasks
 
 - T0 [S1] complete — read-only audit by four explorers (romsource; romlibrary; sqlite, romcache, config and composition root; romlistings, romdownloads, ports, handlers and web). 99 findings: 2 blocker, 41 major, 56 minor. Consolidated below. Commit: with this document.
-- T1 [S4] in progress (D1, D2, D3 closed) — close the open decisions D1..D4 one at a time and record each answer verbatim in the Log.
+- T1 [S4] complete (D1-D4 closed) — close the open decisions D1..D4 one at a time and record each answer verbatim in the Log.
 - T2 [S3] pending — checks first: lint and depguard rules for the patterns the ledger classes as rule-expressible, each proven to fail on a reproduction and pass on the base. Rule files need user approval.
 - T3 [S5] pending — corrections by cluster, in dependency order (K1 transport, K2 errors and install integrity, K3 ports and boundaries, K4 state and memory, K5 persistence, K6 compatibility code, K7 surface, K8 composition root). Each cluster is expanded only when selected.
 - T4 [S5] pending — closure proof and independent verification for clusters that touch concurrency, persisted formats or contracts others consume.
@@ -152,7 +152,7 @@ Severity: B blocker, M major, m minor. Fix: lint, test, arch (architecture chang
 - D1 HTTP policy — CLOSED (L6). Do LolRoms and the file download also go through a contract with a generated client? Facts from the audit: LolRoms fits (one GET with a query parameter and a `text/html` response); the download does not fit well (the generated client fixes its server at construction and re-escapes path parameters, `WithResponses` buffers the whole body, and `Range` resume, `Content-Range` validation and `.part` handling stay hand-written either way).
 - D2 Browse and search — CLOSED (L7). Keep platform browsing and text search both, or always start from search? It shapes the behavior-named CQRS surface (K3).
 - D3 Strictness for compatibility — CLOSED (L8). May K6 delete behavior kept only for historical byte-compatibility (error strings, legacy labels, the untagged cache format)?
-- D4 Order and size. Which cluster first after the checks, and whether `7z` stays an external process behind a port or moves to a pure-Go library.
+- D4 Order and size — CLOSED (L10). Which cluster first after the checks, and whether `7z` stays an external process behind a port or moves to a pure-Go library.
 
 ## Log
 
@@ -165,3 +165,4 @@ Severity: B blocker, M major, m minor. Fix: lint, test, arch (architecture chang
 - L7: D2 answered by the user with the option "Mantener ambos, con identidad estable (Recomendada)": platform browsing and text search both stay; the in-memory search map is removed and a game ID is always resolved against its source, so a download works after a restart; the search-only capability becomes explicit on the source port instead of a hidden type assertion.
 - L8: D3 answered by the user with the option "Borrar los tres (Recomendada)": delete `provider_errors.go` and the tests that pin legacy error strings (errors become those of the generated client and the contract); the on-disk listing cache moves to its own tagged format and old cache files are ignored and fetched again once (cache only, no user data); a trailing slash in a base URL stops producing a double slash.
 - L9: Research for D4 (verified with primary sources): `github.com/bodgit/sevenzip` v1.6.5 is a pure-Go 7-zip reader, BSD-3-Clause, `go 1.25.0`, active (252 stars, 15 open issues), with about 13 module dependencies, including `klauspost/compress`, `ulikunitz/xz`, `andybalholm/brotli` and `pierrec/lz4`; its README notes that more sample archives are needed to test every method combination. Adopting it would change `go.mod`/`go.sum` and therefore the Nix `vendorHash`, and would remove `p7zip` from the package wrapper.
+- L10: D4 answered by the user with the option "Go puro con bodgit/sevenzip (Recomendada)": drop the external `7z` process and `p7zip` from the Nix package and the container; extraction becomes bounded in size and cancellable through the context; `os/exec` can then be forbidden repository-wide. The cluster order stays as written in T3 (K1 transport, K2 errors and install integrity, K3 ports and boundaries, K4 state, K5 persistence, K6 compatibility code, K7 surface, K8 composition root); the user may reorder it.
