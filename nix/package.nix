@@ -1,8 +1,6 @@
 {
   lib,
   buildGo125Module,
-  makeWrapper,
-  p7zip,
 }:
 buildGo125Module {
   pname = "romharbor";
@@ -11,7 +9,6 @@ buildGo125Module {
   vendorHash = "sha256-KttuIe62ZK5y5A5qst3ZTalKtiRhNdhRRt1m4686CLE=";
   subPackages = [ "cmd/web" ];
   env.CGO_ENABLED = "1";
-  nativeBuildInputs = [ makeWrapper ];
 
   checkPhase = ''
     runHook preCheck
@@ -21,7 +18,6 @@ buildGo125Module {
 
   postInstall = ''
     mv "$out/bin/web" "$out/bin/romharbor"
-    wrapProgram "$out/bin/romharbor" --prefix PATH : ${lib.makeBinPath [ p7zip ]}
   '';
 
   meta = {

@@ -42,7 +42,7 @@ docker run -d --name romharbor --stop-timeout 35 \
 Open **http://localhost:8080** for the catalog. The named volume keeps your database, listing cache,
 and downloaded games across container replacements. Do not delete it when updating.
 
-The image includes `7z` and CA certificates and runs as UID/GID `10001:10001`.
+The image includes CA certificates and runs as UID/GID `10001:10001`.
 Existing volumes or bind mounts must be writable by that identity. Pin a version or digest;
 the release workflow does not publish a `latest` tag.
 
@@ -70,7 +70,7 @@ Run the released package without installing it into a profile:
 nix run github:glats/romharbor/v0.1.0 -- --listen 127.0.0.1:8080
 ```
 
-The package includes `7z`. Its database, cache, and library default to `./data/` in the working directory.
+Its database, cache, and library default to `./data/` in the working directory.
 Nix packages are built in CI on native x86_64 and ARM64 Linux runners; Darwin is not a flake target.
 
 For a declarative NixOS service, add `github:glats/romharbor/v0.1.0` to your flake inputs,
@@ -80,7 +80,7 @@ and service identity. See the [module example and option reference](docs/distrib
 
 ### From source
 
-Install Go 1.25 or newer, a C compiler, and `7z` for `.7z` extraction. SQLite requires CGO;
+Install Go 1.25 or newer, and a C compiler. SQLite requires CGO;
 templates and static assets are embedded, so no Node.js build or external database is needed.
 
 ```sh

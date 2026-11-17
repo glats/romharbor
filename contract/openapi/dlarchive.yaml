@@ -41,12 +41,6 @@ paths:
           description: Page offset used with action=list.
           schema:
             type: integer
-        - name: Accept
-          in: header
-          required: false
-          description: Media type the endpoint is asked for; ROMHarbor sends application/json.
-          schema:
-            type: string
         - name: id
           in: query
           required: false

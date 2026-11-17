@@ -22,6 +22,7 @@ import (
 	"app.ddd/internal/adapter/config"
 	"app.ddd/internal/adapter/romcache"
 	"app.ddd/internal/adapter/romdownloads"
+	"app.ddd/internal/adapter/romfetch"
 	"app.ddd/internal/adapter/romlibrary"
 	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/adapter/romsource"
@@ -32,7 +33,10 @@ import (
 	"app.ddd/internal/service"
 )
 
-const shutdownTimeout = 30 * time.Second
+const (
+	shutdownTimeout = 30 * time.Second
+	sourceTimeout   = time.Minute
+)
 
 func main() {
 	if err := godotenv.Load(".env"); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -110,7 +114,7 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 		return err
 	}
 	cache := romcache.New(cfg.ROM.Cache)
-	library := &romlibrary.Library{Root: cfg.ROM.Library, HTTPClient: &http.Client{}}
+	library := &romlibrary.Library{Root: cfg.ROM.Library}
 	jobs := sqlite.NewJobStore(db)
 	listings := romlistings.NewListings(sources, cache, cfg.ROM.CacheTTL)
 	downloads := romdownloads.NewDownloads(library, jobs, nil)
@@ -181,17 +185,18 @@ func sourceNames(sources []adapter.RomSource) []string {
 }
 
 func buildSources(list string) ([]adapter.RomSource, error) {
+	client := romfetch.NewClient(sourceTimeout)
 	var sources []adapter.RomSource
 	for _, name := range strings.Split(list, ",") {
 		switch strings.TrimSpace(name) {
 		case "":
 			continue
 		case "archive.org", "archiveorg":
-			sources = append(sources, romsource.NewArchiveOrg(nil))
+			sources = append(sources, romsource.NewArchiveOrg(client))
 		case "dlarchive":
-			sources = append(sources, romsource.NewDlArchive(nil))
+			sources = append(sources, romsource.NewDlArchive(client))
 		case "lolroms":
-			sources = append(sources, romsource.NewLolRoms(nil))
+			sources = append(sources, romsource.NewLolRoms(client))
 		default:
 			return nil, errors.New("unknown source: " + name)
 		}

@@ -13,7 +13,7 @@ LABEL org.opencontainers.image.source="https://github.com/glats/romharbor" \
       org.opencontainers.image.licenses="MIT"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates p7zip-full \
+ && apt-get install -y --no-install-recommends ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

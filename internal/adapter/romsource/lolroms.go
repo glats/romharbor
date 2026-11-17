@@ -12,6 +12,7 @@ import (
 
 	"github.com/PuerkitoBio/goquery"
 
+	"app.ddd/internal/adapter/romfetch"
 	"app.ddd/internal/adapter/romsource/lolromsapi"
 	"app.ddd/internal/domain/rom"
 )
@@ -97,7 +98,7 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 	client, err := lolromsapi.NewClient(
 		strings.TrimRight(l.BaseURL, "/")+"/",
 		lolromsapi.WithHTTPClient(l.HTTPClient),
-		lolromsapi.WithRequestEditorFn(lolromsapi.HTMLRequestEditor("ROMHarbor")),
+		lolromsapi.WithRequestEditorFn(romfetch.Headers(map[string]string{"User-Agent": "ROMHarbor", "Accept": "text/html"})),
 	)
 	if err != nil {
 		return nil, err

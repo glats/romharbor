@@ -14,7 +14,6 @@ trap cleanup EXIT HUP INT TERM
 docker run --rm --entrypoint sh "$image" -c '
   test "$(id -u)" = 10001
   test -s /etc/ssl/certs/ca-certificates.crt
-  command -v 7z
 '
 start() {
   docker run -d --name "$name" --read-only --tmpfs /tmp \

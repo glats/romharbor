@@ -48,7 +48,8 @@ tasks:
     cmds:
       - go tool -modfile=./tools/go.tool.mod oapi-codegen --config config/oapi-codegen/archiveorg.yaml contract/openapi/archiveorg.yaml
       - go tool -modfile=./tools/go.tool.mod oapi-codegen --config config/oapi-codegen/dlarchive.yaml contract/openapi/dlarchive.yaml
-      - go tool -modfile=./tools/go.tool.mod gofumpt -w internal/adapter/romsource/archiveorgapi/client.gen.go internal/adapter/romsource/dlarchiveapi/client.gen.go
+      - go tool -modfile=./tools/go.tool.mod oapi-codegen --config config/oapi-codegen/lolroms.yaml contract/openapi/lolroms.yaml
+      - go tool -modfile=./tools/go.tool.mod gofumpt -w internal/adapter/romsource/archiveorgapi/client.gen.go internal/adapter/romsource/dlarchiveapi/client.gen.go internal/adapter/romsource/lolromsapi/client.gen.go
 
   check-providers:
     desc: Check provider client generation without modifying the worktree
@@ -57,7 +58,7 @@ tasks:
         set -eu
         scratch=$(mktemp -d)
         trap 'rm -rf "$scratch"' EXIT
-        for provider in archiveorg dlarchive; do
+        for provider in archiveorg dlarchive lolroms; do
           sed "s|^output:.*|output: $scratch/$provider.go|" "config/oapi-codegen/$provider.yaml" > "$scratch/$provider.yaml"
           go tool -modfile=./tools/go.tool.mod oapi-codegen --config "$scratch/$provider.yaml" "contract/openapi/$provider.yaml"
           go tool -modfile=./tools/go.tool.mod gofumpt -w "$scratch/$provider.go"

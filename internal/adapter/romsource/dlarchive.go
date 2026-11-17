@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"app.ddd/internal/adapter/romfetch"
 	"app.ddd/internal/adapter/romsource/dlarchiveapi"
 	"app.ddd/internal/domain/rom"
 )
@@ -176,9 +177,11 @@ func (d *DlArchive) filesAPI(ctx context.Context, params *dlarchiveapi.FilesApiP
 	if d.HTTPClient == nil {
 		return nil, errors.New("dlarchive: no HTTP client is configured")
 	}
-	accept := "application/json"
-	params.Accept = &accept
-	client, err := dlarchiveapi.NewClient(d.BaseURL, dlarchiveapi.WithHTTPClient(d.HTTPClient))
+	client, err := dlarchiveapi.NewClient(
+		d.BaseURL,
+		dlarchiveapi.WithHTTPClient(d.HTTPClient),
+		dlarchiveapi.WithRequestEditorFn(romfetch.Headers(map[string]string{"Accept": "application/json"})),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("dlarchive: %s: %w", params.Action, err)
 	}

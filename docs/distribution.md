@@ -15,7 +15,7 @@ docker compose up --build -d
 The default image name is local (`romharbor:local`); no published image is assumed. Compose publishes
 only `127.0.0.1:8080` and stores the SQLite database, cache and library in the named volume
 `romharbor-data`. The process runs as UID/GID `10001:10001`, with a read-only root filesystem.
-The image includes trusted CA certificates and `7z`. Do not delete the volume during upgrades.
+The image includes trusted CA certificates. Do not delete the volume during upgrades.
 
 To build and run without Compose, including with Podman, use the Dockerfile and the equivalent
 command in the main README, replacing `docker` with `podman` where appropriate. Podman is an
@@ -40,7 +40,7 @@ claimed. Nix provides separate Linux architecture outputs below.
 ## Nix package
 
 The flake locks nixpkgs to the `nixos-26.05` channel. Its Go 1.25 builder supports the application's
-declared Go version; `7z` is included on the packaged command's PATH. No global profile install is required.
+declared Go version; `.7z` archives are read in-process, so the package needs no external extractor. No global profile install is required.
 
 ```sh
 nix build .#romharbor
