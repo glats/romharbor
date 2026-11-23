@@ -53,7 +53,7 @@ func extractROM(ctx context.Context, limits extractLimits, archiveExt, archivePa
 	case ".7z":
 		return extract7zROM(ctx, limits, archivePath, workDir, exts)
 	}
-	return "", "", fmt.Errorf("romcatalog: unsupported archive format %q", archiveExt)
+	return "", "", notRetryable(fmt.Errorf("romcatalog: unsupported archive format %q", archiveExt))
 }
 
 func extractZipROM(ctx context.Context, limits extractLimits, archivePath, workDir string, exts []string) (string, string, error) {
@@ -96,7 +96,7 @@ func extract7zROM(ctx context.Context, limits extractLimits, archivePath, workDi
 
 func checkEntryCount(n int, limits extractLimits) error {
 	if n > limits.entries {
-		return fmt.Errorf("romcatalog: archive holds more than %d entries: %w", limits.entries, errTooManyEntries)
+		return notRetryable(fmt.Errorf("romcatalog: archive holds more than %d entries: %w", limits.entries, errTooManyEntries))
 	}
 	return nil
 }
@@ -108,11 +108,11 @@ func extractEntry(ctx context.Context, limits extractLimits, entries []archiveEn
 	}
 	i, ok := rom.PickROM(names, exts)
 	if !ok {
-		return "", "", rom.NoROMError(exts)
+		return "", "", notRetryable(rom.NoROMError(exts))
 	}
 	entry := entries[i]
 	if entry.size > uint64(limits.bytes) {
-		return "", "", fmt.Errorf("romcatalog: extract %s: larger than the %d byte cap: %w", entry.name, limits.bytes, errExtractTooLarge)
+		return "", "", notRetryable(fmt.Errorf("romcatalog: extract %s: larger than the %d byte cap: %w", entry.name, limits.bytes, errExtractTooLarge))
 	}
 	ext := path.Ext(entry.name)
 	romPath := filepath.Join(workDir, "rom"+ext)
@@ -135,6 +135,9 @@ func writeEntry(ctx context.Context, entry archiveEntry, dst string, limit int64
 		return fmt.Errorf("romcatalog: create %s: %w", dst, err)
 	}
 	_, copyErr := copyCapped(ctx, out, rc, limit)
+	if copyErr == nil {
+		copyErr = out.Sync()
+	}
 	if closeErr := out.Close(); copyErr == nil {
 		copyErr = closeErr
 	}

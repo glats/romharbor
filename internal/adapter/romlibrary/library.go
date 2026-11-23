@@ -2,22 +2,30 @@ package romlibrary
 
 import (
 	"context"
-	"crypto/md5"
-	"crypto/sha1"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"hash"
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 
 	"app.ddd/internal/adapter/romfetch"
 	"app.ddd/internal/domain/rom"
 )
+
+// The HTTP statuses a retry cannot fix.
+const (
+	statusBadRequest   = 400
+	statusUnauthorized = 401
+	statusForbidden    = 403
+	statusNotFound     = 404
+	statusGone         = 410
+)
+
+// errRestart asks for the download to start again from its first byte.
+var errRestart = errors.New("restart the download")
 
 type Library struct {
 	installOnce sync.Once
@@ -65,7 +73,12 @@ func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress 
 	}
 	archive := rom.ArchiveExtension(ext)
 	if req.File.Archive && !archive {
-		return rom.InstallResult{}, fmt.Errorf("romcatalog: unsupported archive format for %s", req.File.Name)
+		return rom.InstallResult{}, notRetryable(fmt.Errorf("romcatalog: unsupported archive format for %s", req.File.Name))
+	}
+	if archive && req.Platform.Accepts(ext) {
+		// The platform lists the archive extension as a ROM extension: the
+		// archive is the ROM itself and is installed without extraction.
+		archive = false
 	}
 	if !archive && ext == "" {
 		if len(req.Platform.Extensions) == 0 {
@@ -91,20 +104,28 @@ func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress 
 	if progress == nil {
 		progress = func(int64, int64) {}
 	}
-	if err := l.fetch(ctx, req.File, part, progress); err != nil {
+	sums, err := l.fetch(ctx, req.File, part, progress)
+	if err != nil {
+		if errors.Is(err, rom.ErrNotRetryable) {
+			discard(part)
+		}
 		return rom.InstallResult{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return rom.InstallResult{}, err
 	}
-	if err := verifyChecksum(part, req.File); err != nil {
-		_ = os.Remove(part)
+	if err := checkSize(part, req.File); err != nil {
+		discard(part)
+		return rom.InstallResult{}, err
+	}
+	if err := sums.verify(); err != nil {
+		discard(part)
 		return rom.InstallResult{}, err
 	}
 	if archive {
 		return l.installArchive(ctx, dir, base, ext, part, req.Platform.Extensions)
 	}
-	if err := install(part, tempPath(dir, filepath.Base(target)), target); err != nil {
+	if err := install(part, tempPath(dir, filepath.Base(target)), target, dir); err != nil {
 		return rom.InstallResult{}, err
 	}
 	return installedResult(target, false)
@@ -113,24 +134,26 @@ func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress 
 func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, archivePath string, exts []string) (rom.InstallResult, error) {
 	workDir, err := os.MkdirTemp(dir, ".extract-")
 	if err != nil {
-		_ = os.Remove(archivePath)
+		discard(archivePath)
 		return rom.InstallResult{}, fmt.Errorf("romcatalog: create extraction directory: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
 	romPath, romExt, err := extractROM(ctx, l.limits, archiveExt, archivePath, workDir, exts)
 	if err != nil {
-		_ = os.Remove(archivePath)
+		if errors.Is(err, rom.ErrNotRetryable) {
+			discard(archivePath)
+		}
 		return rom.InstallResult{}, err
 	}
 	target, err := l.targetPath(dir, base, romExt)
 	if err != nil {
 		return rom.InstallResult{}, err
 	}
-	if err := install(romPath, tempPath(dir, base+romExt), target); err != nil {
+	if err := install(romPath, tempPath(dir, base+romExt), target, dir); err != nil {
 		return rom.InstallResult{}, err
 	}
-	_ = os.Remove(archivePath)
+	discard(archivePath)
 	return installedResult(target, true)
 }
 
@@ -138,7 +161,7 @@ func (l *Library) targetPath(dir, base, ext string) (string, error) {
 	root := filepath.Clean(l.Root)
 	target := filepath.Join(dir, base+ext)
 	if !strings.HasPrefix(target, root+string(filepath.Separator)) {
-		return "", fmt.Errorf("romcatalog: target %q escapes library root %q", target, root)
+		return "", notRetryable(fmt.Errorf("romcatalog: target %q escapes library root %q", target, root))
 	}
 	return target, nil
 }
@@ -163,35 +186,68 @@ func installedResult(path string, extracted bool) (rom.InstallResult, error) {
 	return rom.InstallResult{Path: path, Size: info.Size(), Extracted: extracted}, nil
 }
 
-func (l *Library) fetch(ctx context.Context, file rom.File, part string, progress func(downloaded, total int64)) error {
-	var offset int64
-	if info, err := os.Stat(part); err == nil {
-		offset = info.Size()
+// fetch downloads the file into part and returns the digests of the whole
+// file. A part that the server cannot resume is dropped and downloaded again.
+func (l *Library) fetch(ctx context.Context, file rom.File, part string, progress func(downloaded, total int64)) (*checksums, error) {
+	sums, err := l.fetchFrom(ctx, file, part, partSize(part), progress)
+	if !errors.Is(err, errRestart) {
+		return sums, err
 	}
+	discard(part)
+	return l.fetchFrom(ctx, file, part, 0, progress)
+}
+
+// fetchFrom downloads the file into part, resuming at offset when the server
+// honors it, and returns the digests of the whole file.
+func (l *Library) fetchFrom(ctx context.Context, file rom.File, part string, offset int64, progress func(downloaded, total int64)) (*checksums, error) {
+	sums := newChecksums(file)
 	stream, err := l.fetcher.Open(ctx, file.URL, offset)
-	var urlErr *romfetch.URLError
-	switch {
-	case errors.As(err, &urlErr):
-		return fmt.Errorf("romcatalog: build request for %s: %w", file.Name, err)
-	case errors.Is(err, romfetch.ErrRangeNotSatisfiable):
-		_ = os.Remove(part)
-		return fmt.Errorf("romcatalog: download %s: partial file no longer matches the source, discarded; retry", file.Name)
-	case err != nil:
-		return fmt.Errorf("romcatalog: download %s: %w", file.Name, err)
+	if err != nil {
+		var urlErr *romfetch.URLError
+		var statusErr *romfetch.StatusError
+		switch {
+		case errors.As(err, &urlErr):
+			return nil, notRetryable(fmt.Errorf("romcatalog: build request for %s: %w", file.Name, err))
+		case errors.Is(err, romfetch.ErrRangeNotSatisfiable):
+			return completePart(ctx, file, part)
+		case errors.As(err, &statusErr):
+			wrapped := fmt.Errorf("romcatalog: download %s: %w", file.Name, err)
+			if permanentStatus(statusErr.Code) {
+				return nil, notRetryable(wrapped)
+			}
+			return nil, wrapped
+		case err != nil:
+			return nil, fmt.Errorf("romcatalog: download %s: %w", file.Name, err)
+		}
 	}
 	defer func() { _ = stream.Body.Close() }()
 
-	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	var done int64
 	if stream.Partial {
-		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+		if err := sums.hashFile(ctx, part); err != nil {
+			return nil, err
+		}
+		if err := checkContentRange(stream.ContentRange, offset, file.Size); err != nil {
+			return nil, fmt.Errorf("%w: %w", errRestart, err)
+		}
 		done = offset
+	}
+	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
+	if stream.Partial {
+		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
 	}
 	out, err := os.OpenFile(part, flags, 0o644)
 	if err != nil {
-		return fmt.Errorf("romcatalog: open %s: %w", part, err)
+		return nil, fmt.Errorf("romcatalog: open %s: %w", part, err)
 	}
-	w := &progressWriter{w: out, downloaded: done, total: max(file.Size, 0), report: progress}
+	total := file.Size
+	if stream.Length >= 0 {
+		total = done + stream.Length
+	}
+	if total < 0 {
+		total = 0
+	}
+	w := io.MultiWriter(&progressWriter{w: out, downloaded: done, total: total, report: progress}, sums)
 	_, copyErr := io.Copy(w, stream.Body)
 	if copyErr == nil {
 		copyErr = out.Sync()
@@ -200,9 +256,124 @@ func (l *Library) fetch(ctx context.Context, file rom.File, part string, progres
 		copyErr = closeErr
 	}
 	if copyErr != nil {
-		return fmt.Errorf("romcatalog: download %s: %w", file.Name, copyErr)
+		return nil, fmt.Errorf("romcatalog: download %s: %w", file.Name, copyErr)
+	}
+	return sums, nil
+}
+
+// completePart reports the part as the whole file when its size matches the
+// published one and its checksum does not contradict it.
+func completePart(ctx context.Context, file rom.File, part string) (*checksums, error) {
+	sums := newChecksums(file)
+	if file.Size <= 0 || partSize(part) != file.Size {
+		discard(part)
+		return nil, errRangeNotSatisfiable(file)
+	}
+	if err := sums.hashFile(ctx, part); err != nil {
+		return nil, err
+	}
+	if _, _, _, mismatch := sums.mismatch(); mismatch {
+		discard(part)
+		return nil, errRangeNotSatisfiable(file)
+	}
+	return sums, nil
+}
+
+// errRangeNotSatisfiable reports a part the server cannot resume.
+func errRangeNotSatisfiable(file rom.File) error {
+	return fmt.Errorf("romcatalog: download %s: partial file no longer matches the source, discarded; retry", file.Name)
+}
+
+// checkContentRange validates the Content-Range of a partial answer against
+// the offset that was asked for and the published size.
+func checkContentRange(value string, offset, size int64) error {
+	if value == "" {
+		return errors.New("the server answered a partial request without a Content-Range")
+	}
+	start, _, total, ok := parseContentRange(value)
+	if !ok {
+		return fmt.Errorf("the server answered an unreadable Content-Range %q", value)
+	}
+	if start != offset {
+		return fmt.Errorf("the server answered Content-Range %q, want the range to start at %d", value, offset)
+	}
+	if total >= 0 && size > 0 && total != size {
+		return fmt.Errorf("the server answered Content-Range %q, want a total of %d bytes", value, size)
 	}
 	return nil
+}
+
+// parseContentRange reads the start and the total of a Content-Range header.
+// A total of -1 means the header carries none.
+func parseContentRange(value string) (start, end, total int64, ok bool) {
+	rest, found := strings.CutPrefix(value, "bytes ")
+	if !found {
+		return 0, 0, 0, false
+	}
+	rangePart, totalPart, found := strings.Cut(rest, "/")
+	if !found {
+		return 0, 0, 0, false
+	}
+	startText, endText, found := strings.Cut(rangePart, "-")
+	if !found {
+		return 0, 0, 0, false
+	}
+	start, err := strconv.ParseInt(startText, 10, 64)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	end, err = strconv.ParseInt(endText, 10, 64)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	if totalPart == "*" {
+		return start, end, -1, true
+	}
+	total, err = strconv.ParseInt(totalPart, 10, 64)
+	if err != nil {
+		return 0, 0, 0, false
+	}
+	return start, end, total, true
+}
+
+// checkSize compares the downloaded byte count with the published size.
+func checkSize(part string, file rom.File) error {
+	if file.Size <= 0 {
+		return nil
+	}
+	got := partSize(part)
+	if got == file.Size {
+		return nil
+	}
+	return fmt.Errorf("romcatalog: download %s: expected %d bytes, got %d", file.Name, file.Size, got)
+}
+
+// partSize returns the size of the partial download, zero when it is gone.
+func partSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+// discard removes a partial download.
+func discard(part string) {
+	_ = os.Remove(part)
+}
+
+// permanentStatus reports whether an HTTP status a retry cannot fix.
+func permanentStatus(code int) bool {
+	switch code {
+	case statusBadRequest, statusUnauthorized, statusForbidden, statusNotFound, statusGone:
+		return true
+	}
+	return false
+}
+
+// notRetryable marks a failure a retry cannot fix.
+func notRetryable(err error) error {
+	return fmt.Errorf("%w: %w", err, rom.ErrNotRetryable)
 }
 
 type progressWriter struct {
@@ -219,46 +390,31 @@ func (p *progressWriter) Write(b []byte) (int, error) {
 	return n, err
 }
 
-func verifyChecksum(path string, file rom.File) error {
-	if file.MD5 != "" {
-		if err := checkDigest(path, md5.New(), "md5", file.MD5); err != nil {
-			return err
-		}
-	}
-	if file.SHA1 != "" {
-		if err := checkDigest(path, sha1.New(), "sha1", file.SHA1); err != nil {
-			return err
-		}
-	}
-	if file.SHA256 != "" {
-		return checkDigest(path, sha256.New(), "sha256", file.SHA256)
-	}
-	return nil
-}
-
-func checkDigest(path string, h hash.Hash, algorithm, expected string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("romcatalog: open %s for checksum: %w", path, err)
-	}
-	defer func() { _ = f.Close() }()
-	if _, err := io.Copy(h, f); err != nil {
-		return fmt.Errorf("romcatalog: checksum %s: %w", path, err)
-	}
-	actual := hex.EncodeToString(h.Sum(nil))
-	if !strings.EqualFold(actual, expected) {
-		return fmt.Errorf("romcatalog: %s checksum mismatch: expected %s, got %s", algorithm, expected, actual)
-	}
-	return nil
-}
-
-func install(src, tmp, target string) error {
+// install moves src to target through tmp and syncs the directory so the
+// rename survives a crash. A failed second rename puts the download back.
+func install(src, tmp, target, dir string) error {
 	if err := os.Rename(src, tmp); err != nil {
 		return fmt.Errorf("romcatalog: stage %s: %w", target, err)
 	}
 	if err := os.Rename(tmp, target); err != nil {
-		_ = os.Remove(tmp)
-		return fmt.Errorf("romcatalog: install %s: %w", target, err)
+		installErr := fmt.Errorf("romcatalog: install %s: %w", target, err)
+		if restoreErr := os.Rename(tmp, src); restoreErr != nil {
+			return fmt.Errorf("%w: the staged download stays at %s: %w", installErr, tmp, restoreErr)
+		}
+		return installErr
+	}
+	if err := syncDir(dir); err != nil {
+		return fmt.Errorf("romcatalog: sync %s: %w", dir, err)
 	}
 	return nil
+}
+
+// syncDir flushes the directory entries so a rename survives a crash.
+func syncDir(dir string) error {
+	f, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	return f.Sync()
 }

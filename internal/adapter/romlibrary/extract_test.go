@@ -141,8 +141,11 @@ func TestExtractReportsNoROMWhenOnlyLinksMatch(t *testing.T) {
 	workDir, _, _, err := extractFrom(t, context.Background(), defaultExtractLimits, ".zip", archive)
 
 	want := rom.NoROMError(gbaExts)
-	if err == nil || err.Error() != want.Error() {
+	if err == nil || !strings.Contains(err.Error(), want.Error()) {
 		t.Fatalf("extractROM() error = %v, want %v", err, want)
+	}
+	if !errors.Is(err, rom.ErrNotRetryable) {
+		t.Errorf("extractROM() error = %v, want a failure a retry cannot fix", err)
 	}
 	if files := installedFiles(t, workDir); len(files) != 0 {
 		t.Errorf("work dir files = %v, want none", files)
