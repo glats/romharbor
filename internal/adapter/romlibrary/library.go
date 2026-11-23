@@ -330,7 +330,7 @@ func (l *Library) fetchFrom(ctx context.Context, file rom.File, part string, off
 		if err := sums.hashFile(ctx, part); err != nil {
 			return nil, err
 		}
-		if err := checkContentRange(stream.ContentRange, offset, file.Size); err != nil {
+		if err := checkContentRange(stream.ContentRange, offset, file.Size, stream.Length); err != nil {
 			return nil, fmt.Errorf("%w: %w", errRestart, err)
 		}
 		done = offset
@@ -390,20 +390,35 @@ func errRangeNotSatisfiable(file rom.File) error {
 }
 
 // checkContentRange validates the Content-Range of a partial answer against
-// the offset that was asked for and the published size.
-func checkContentRange(value string, offset, size int64) error {
+// the offset that was asked for, the published size and the length of the
+// body. The range is asked open-ended, so it must carry the rest of the file.
+func checkContentRange(value string, offset, size, length int64) error {
 	if value == "" {
 		return errors.New("the server answered a partial request without a Content-Range")
 	}
-	start, _, total, ok := parseContentRange(value)
+	start, end, total, ok := parseContentRange(value)
 	if !ok {
 		return fmt.Errorf("the server answered an unreadable Content-Range %q", value)
 	}
 	if start != offset {
 		return fmt.Errorf("the server answered Content-Range %q, want the range to start at %d", value, offset)
 	}
-	if total >= 0 && size > 0 && total != size {
-		return fmt.Errorf("the server answered Content-Range %q, want a total of %d bytes", value, size)
+	if end < start {
+		return fmt.Errorf("the server answered Content-Range %q, want the range to end at or after %d", value, start)
+	}
+	if total >= 0 && end >= total {
+		return fmt.Errorf("the server answered Content-Range %q, want the range to end before %d", value, total)
+	}
+	if size > 0 {
+		if total >= 0 && total != size {
+			return fmt.Errorf("the server answered Content-Range %q, want a total of %d bytes", value, size)
+		}
+		if end != size-1 {
+			return fmt.Errorf("the server answered Content-Range %q, want the range to end at %d", value, size-1)
+		}
+	}
+	if length >= 0 && length != end-start+1 {
+		return fmt.Errorf("the server answered Content-Range %q with %d bytes, want %d", value, length, end-start+1)
 	}
 	return nil
 }

@@ -214,28 +214,107 @@ func TestInstallRejectsAnIndexThatIsTooLarge(t *testing.T) {
 	assertAbsent(t, filepath.Join(root, "psx", "Game.zip.part"))
 }
 
-func TestInstallRejectsTwoPiecesOfTheSetThatShareAName(t *testing.T) {
+func TestInstallKeepsTwoPiecesThatShareAName(t *testing.T) {
 	archive := zipArchive(t, []zipEntry{
 		{name: "Game.cue", body: "FILE \"a/Game.bin\" BINARY\nFILE \"b/Game.bin\" BINARY\n"},
 		{name: "a/Game.bin", body: "one"},
 		{name: "b/Game.bin", body: "two"},
 	})
 	srv := serve(t, servedBody(archive))
-	l, root := newLibrary(t)
+	l, _ := newLibrary(t)
 
-	_, err := l.Install(context.Background(), rom.InstallRequest{
+	res, err := l.Install(context.Background(), rom.InstallRequest{
 		Platform: psxPlatform,
 		File:     rom.File{Name: "Game.zip", Size: int64(len(archive)), URL: srv.URL, Archive: true},
 	}, nil)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	folder := res.Path
+	for name, want := range map[string]string{
+		filepath.Join("a", "Game.bin"): "one",
+		filepath.Join("b", "Game.bin"): "two",
+	} {
+		if got := readFile(t, filepath.Join(folder, name)); string(got) != want {
+			t.Errorf("installed %s = %q, want %q", name, got, want)
+		}
+	}
+}
 
-	if !errors.Is(err, rom.ErrNotRetryable) {
-		t.Fatalf("Install() error = %v, want a failure a retry cannot fix", err)
+func TestInstallKeepsTheArchiveLayoutOfTheSet(t *testing.T) {
+	archive := zipArchive(t, []zipEntry{
+		{name: "disc/Game.cue", body: "FILE \"tracks/one.bin\" BINARY\n"},
+		{name: "disc/tracks/one.bin", body: "track"},
+	})
+	srv := serve(t, servedBody(archive))
+	l, _ := newLibrary(t)
+
+	res, err := l.Install(context.Background(), rom.InstallRequest{
+		Platform: psxPlatform,
+		File:     rom.File{Name: "Game.zip", Size: int64(len(archive)), URL: srv.URL, Archive: true},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
 	}
-	if files := installedFiles(t, root); len(files) != 0 {
-		t.Errorf("library files = %v, want none", files)
+	folder := res.Path
+	if got := readFile(t, filepath.Join(folder, "Game.cue")); string(got) != "FILE \"tracks/one.bin\" BINARY\n" {
+		t.Errorf("installed index = %q, want the untouched index text", got)
 	}
-	assertNoExtractDir(t, root)
-	assertAbsent(t, filepath.Join(root, "psx", "Game.zip.part"))
+	if got := readFile(t, filepath.Join(folder, "tracks", "one.bin")); string(got) != "track" {
+		t.Errorf("installed piece = %q, want %q", got, "track")
+	}
+}
+
+func TestInstallResolvesNestedIndexesInTheirOwnFolder(t *testing.T) {
+	archive := zipArchive(t, []zipEntry{
+		{name: "Game.m3u", body: "disc1/a.cue\n"},
+		{name: "disc1/a.cue", body: "FILE \"a.bin\" BINARY\n"},
+		{name: "disc1/a.bin", body: "disc"},
+	})
+	srv := serve(t, servedBody(archive))
+	l, _ := newLibrary(t)
+
+	res, err := l.Install(context.Background(), rom.InstallRequest{
+		Platform: psxPlatform,
+		File:     rom.File{Name: "Game.zip", Size: int64(len(archive)), URL: srv.URL, Archive: true},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	folder := res.Path
+	for name, want := range map[string]string{
+		"Game.m3u":                      "disc1/a.cue\n",
+		filepath.Join("disc1", "a.cue"): "FILE \"a.bin\" BINARY\n",
+		filepath.Join("disc1", "a.bin"): "disc",
+	} {
+		if got := readFile(t, filepath.Join(folder, name)); string(got) != want {
+			t.Errorf("installed %s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestInstallWritesAPieceThatTwoIndexesReferenceOnce(t *testing.T) {
+	archive := zipArchive(t, []zipEntry{
+		{name: "Game.cue", body: "FILE \"Game.bin\" BINARY\nFILE \"Game.bin\" BINARY\n"},
+		{name: "Game.bin", body: "disc-image"},
+	})
+	srv := serve(t, servedBody(archive))
+	l, root := newLibrary(t)
+
+	res, err := l.Install(context.Background(), rom.InstallRequest{
+		Platform: psxPlatform,
+		File:     rom.File{Name: "Game.zip", Size: int64(len(archive)), URL: srv.URL, Archive: true},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	folder := res.Path
+	if got := readFile(t, filepath.Join(folder, "Game.bin")); string(got) != "disc-image" {
+		t.Errorf("installed piece = %q, want %q", got, "disc-image")
+	}
+	if files := installedFiles(t, root); len(files) != 2 {
+		t.Errorf("library files = %v, want the index and the piece once", files)
+	}
 }
 
 func TestInstallKeepsTheSingleROMBehaviorWhenThePlatformDoesNotAcceptTheIndex(t *testing.T) {

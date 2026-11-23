@@ -76,32 +76,44 @@ func (l *archiveLookup) resolve(dir, name string) (archiveEntry, bool) {
 	return e, ok
 }
 
-// resolveSet returns the index of the set and every piece it references.
-func resolveSet(entries []archiveEntry, index archiveEntry) ([]archiveEntry, error) {
+// setPiece is one file of the set and the path it keeps inside the folder.
+type setPiece struct {
+	entry archiveEntry
+	path  string
+}
+
+// resolveSet returns the index of the set and every piece it references, each
+// with the path it keeps inside the installed folder.
+func resolveSet(entries []archiveEntry, index archiveEntry) ([]setPiece, error) {
 	lookup := newArchiveLookup(entries)
-	var pieces []archiveEntry
+	root := path.Dir(index.name)
+	var pieces []setPiece
 	seen := make(map[string]bool)
-	if err := collectSet(lookup, index, seen, &pieces); err != nil {
+	if err := collectSet(lookup, root, index, seen, &pieces); err != nil {
 		return nil, err
 	}
-	names := make(map[string]bool, len(pieces))
+	paths := make(map[string]string, len(pieces))
 	for _, piece := range pieces {
-		base := path.Base(piece.name)
-		if names[base] {
-			return nil, notRetryable(fmt.Errorf("romcatalog: the set holds two pieces named %q", base))
+		if other, ok := paths[piece.path]; ok && other != piece.entry.name {
+			return nil, notRetryable(fmt.Errorf("romcatalog: %s and %s both land at %q", other, piece.entry.name, piece.path))
 		}
-		names[base] = true
+		paths[piece.path] = piece.entry.name
 	}
 	return pieces, nil
 }
 
-// collectSet adds an index and the pieces it references to the set.
-func collectSet(lookup *archiveLookup, entry archiveEntry, seen map[string]bool, pieces *[]archiveEntry) error {
+// collectSet adds an index and the pieces it references to the set. The
+// layout of the archive is kept, so the text of every index stays valid.
+func collectSet(lookup *archiveLookup, root string, entry archiveEntry, seen map[string]bool, pieces *[]setPiece) error {
 	if seen[entry.name] {
 		return nil
 	}
 	seen[entry.name] = true
-	*pieces = append(*pieces, entry)
+	rel, ok := relativeTo(root, entry.name)
+	if !ok {
+		return notRetryable(fmt.Errorf("romcatalog: %s lands outside the folder of the index", entry.name))
+	}
+	*pieces = append(*pieces, setPiece{entry: entry, path: rel})
 	if !isIndexName(entry.name) {
 		return nil
 	}
@@ -126,11 +138,31 @@ func collectSet(lookup *archiveLookup, entry archiveEntry, seen map[string]bool,
 		if !ok {
 			return notRetryable(fmt.Errorf("romcatalog: %s references %q, which the archive does not hold", entry.name, reference))
 		}
-		if err := collectSet(lookup, piece, seen, pieces); err != nil {
+		if err := collectSet(lookup, root, piece, seen, pieces); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// relativeTo returns the path a file keeps inside the folder of the index,
+// when the file lives under the folder of the index.
+func relativeTo(root, name string) (string, bool) {
+	if root == "." || root == "" {
+		if !containedReference(name) {
+			return "", false
+		}
+		return name, true
+	}
+	prefix := root + "/"
+	if !strings.HasPrefix(name, prefix) {
+		return "", false
+	}
+	rel := name[len(prefix):]
+	if !containedReference(rel) {
+		return "", false
+	}
+	return rel, true
 }
 
 // isIndexName reports whether the name is the index of a set.
@@ -289,21 +321,26 @@ func splitFields(line string) []string {
 	return fields
 }
 
-// writeSet writes the index and every piece of the set into the folder.
-func writeSet(ctx context.Context, limits extractLimits, pieces []archiveEntry, folder string) error {
+// writeSet writes the index and every piece of the set into the folder,
+// keeping the paths the archive holds them under.
+func writeSet(ctx context.Context, limits extractLimits, pieces []setPiece, folder string) error {
 	if err := os.MkdirAll(folder, 0o755); err != nil {
 		return fmt.Errorf("romcatalog: create %s: %w", folder, err)
 	}
 	remaining := limits.bytes
 	for _, piece := range pieces {
-		if remaining < 0 || piece.size > uint64(remaining) {
-			return notRetryable(fmt.Errorf("romcatalog: extract %s: the set does not fit in the %d byte cap: %w", piece.name, limits.bytes, errExtractTooLarge))
+		dst := filepath.Join(folder, filepath.FromSlash(piece.path))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			return fmt.Errorf("romcatalog: create %s: %w", filepath.Dir(dst), err)
 		}
-		written, err := writeEntry(ctx, piece, filepath.Join(folder, path.Base(piece.name)), remaining)
+		if remaining < 0 || piece.entry.size > uint64(remaining) {
+			return notRetryable(fmt.Errorf("romcatalog: extract %s: the set does not fit in the %d byte cap: %w", piece.entry.name, limits.bytes, errExtractTooLarge))
+		}
+		written, err := writeEntry(ctx, piece.entry, dst, remaining)
 		remaining -= written
 		if err != nil {
 			if errors.Is(err, errExtractTooLarge) {
-				return notRetryable(fmt.Errorf("romcatalog: extract %s: the set does not fit in the %d byte cap: %w", piece.name, limits.bytes, errExtractTooLarge))
+				return notRetryable(fmt.Errorf("romcatalog: extract %s: the set does not fit in the %d byte cap: %w", piece.entry.name, limits.bytes, errExtractTooLarge))
 			}
 			return err
 		}
