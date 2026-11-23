@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"fmt"
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/common/decorator"
@@ -26,7 +27,10 @@ func NewStartDownloadHandler(listings adapter.RomListings, downloads adapter.Rom
 
 func (c startDownloadCommand) Handle(ctx context.Context, cmd StartDownload) error {
 	game, ok, err := c.listings.Game(ctx, cmd.GameID)
-	if err != nil || !ok {
+	if err != nil {
+		return fmt.Errorf("look up game %q: %w", cmd.GameID, err)
+	}
+	if !ok {
 		return rom.ErrGameNotFound
 	}
 	file, ok := game.Main()

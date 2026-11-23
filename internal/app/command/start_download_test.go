@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -171,6 +172,40 @@ func TestStartDownloadRejectsNewDownloadsAfterShutdownWithoutQueueingAJob(t *tes
 
 	require.ErrorIs(t, err, rom.ErrShuttingDown)
 	assert.Zero(t, queued)
+}
+
+type failingListings struct {
+	err error
+}
+
+func (f failingListings) PlatformCounts(context.Context) []rom.PlatformCount { return nil }
+
+func (f failingListings) Games(context.Context, string, string, int, int) ([]rom.Game, error) {
+	return nil, f.err
+}
+
+func (f failingListings) Game(context.Context, string) (rom.Game, bool, error) {
+	return rom.Game{}, false, f.err
+}
+
+type failingDownloads struct {
+	err error
+}
+
+func (f failingDownloads) Start(context.Context, rom.InstallRequest) (rom.Job, error) {
+	return rom.Job{}, f.err
+}
+
+func TestStartDownloadReportsListingFailuresInsteadOfGameNotFound(t *testing.T) {
+	cause := errors.New("source unavailable")
+	handler := NewStartDownloadHandler(failingListings{err: cause}, failingDownloads{err: errors.New("downloads not reached")}, metric.NoOp{})
+	queued := 0
+
+	err := handler.Handle(context.Background(), StartDownload{GameID: "g", Queued: func(rom.Job) { queued++ }})
+
+	require.ErrorIs(t, err, cause)
+	assert.NotErrorIs(t, err, rom.ErrGameNotFound)
+	assert.Zero(t, queued, "a failed lookup reported a queued job")
 }
 
 func TestStartDownloadReportsDecoratorMetrics(t *testing.T) {

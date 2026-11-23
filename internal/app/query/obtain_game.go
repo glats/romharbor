@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"fmt"
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/common/decorator"
@@ -25,7 +26,7 @@ func NewObtainGameHandler(listings adapter.RomListings, metric decorator.Metrics
 func (q obtainGameQuery) Handle(ctx context.Context, query ObtainGame) (rom.Game, error) {
 	game, ok, err := q.listings.Game(ctx, query.ID)
 	if err != nil {
-		return rom.Game{}, err
+		return rom.Game{}, fmt.Errorf("look up game %q: %w", query.ID, err)
 	}
 	if !ok {
 		return rom.Game{}, rom.ErrGameNotFound
