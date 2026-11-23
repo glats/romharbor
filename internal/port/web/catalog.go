@@ -30,22 +30,28 @@ const (
 )
 
 type catalogPageData struct {
-	Title       string
-	Platforms   []rom.Platform
-	Platform    rom.Platform
-	Games       []rom.Game
-	Cover       string
-	Total       int
-	Query       string
-	Game        *rom.Game
-	Jobs        []rom.Job
-	Error       string
-	Destination string
+	Title         string
+	Platforms     []rom.Platform
+	Platform      rom.Platform
+	Games         []rom.Game
+	FailedSources []string
+	Cover         string
+	Total         int
+	Query         string
+	Game          *rom.Game
+	Jobs          []rom.Job
+	Error         string
+	Destination   string
 }
 
 type catalogPlatformCount struct {
 	rom.Platform
 	Count int `json:"count"`
+}
+
+type catalogGamesResponse struct {
+	Games         []rom.Game `json:"games"`
+	FailedSources []string   `json:"failedSources,omitempty"`
 }
 
 func (h *Handler) mountCatalog(mux *http.ServeMux) {
@@ -97,13 +103,14 @@ func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.catalogRender(w, http.StatusOK, catalogPageData{
-		Title:       platform.Name,
-		Platform:    platform,
-		Games:       games,
-		Query:       text,
-		Total:       len(games),
-		Jobs:        jobs,
-		Destination: destination,
+		Title:         platform.Name,
+		Platform:      platform,
+		Games:         games.Games,
+		FailedSources: games.FailedSources,
+		Query:         text,
+		Total:         len(games.Games),
+		Jobs:          jobs,
+		Destination:   destination,
 	})
 }
 
@@ -193,7 +200,7 @@ func (h *Handler) catalogAPIGames(w http.ResponseWriter, r *http.Request) {
 		h.failJSON(w, r, http.StatusBadGateway, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"games": games})
+	writeJSON(w, http.StatusOK, catalogGamesResponse{Games: games.Games, FailedSources: games.FailedSources})
 }
 
 func (h *Handler) catalogAPIGame(w http.ResponseWriter, r *http.Request) {

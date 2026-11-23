@@ -24,7 +24,7 @@ type Query struct {
 	ObtainUser        decorator.QueryHandler[query.ObtainUser, user.User]
 	ListUsers         decorator.QueryHandler[query.ListUsers, []user.User]
 	ListPlatforms     decorator.QueryHandler[query.ListPlatforms, []rom.PlatformCount]
-	ListGames         decorator.QueryHandler[query.ListGames, []rom.Game]
+	ListGames         decorator.QueryHandler[query.ListGames, rom.GamePage]
 	ObtainGame        decorator.QueryHandler[query.ObtainGame, rom.Game]
 	ListJobs          decorator.QueryHandler[query.ListJobs, []rom.Job]
 	ObtainJob         decorator.QueryHandler[query.ObtainJob, rom.Job]

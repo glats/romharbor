@@ -71,6 +71,13 @@ type Listing struct {
 	Games   []Game
 }
 
+// GamePage is a page of games together with the names of the sources that did
+// not answer the query.
+type GamePage struct {
+	Games         []Game
+	FailedSources []string
+}
+
 // Job statuses.
 const (
 	JobQueued  = "queued"

@@ -89,6 +89,11 @@ nixpkgs input and host configuration. The module defaults are:
 | `cacheTtl` | `24h` |
 | `user`, `group` | `romharbor` |
 
+The `sources` list is the priority order. ROMHarbor queries the sources in parallel, each one under
+its own time limit, and when two of them report the same game the one listed first wins. A source
+that does not answer leaves the games of the other sources in place, and the catalog names the
+source that failed.
+
 The module creates the default system user/group and persistent state directory. A custom user/group
 must already exist. For external storage, pre-create directories writable by that identity; the
 module does not take ownership of an existing library. Storage paths must be absolute. The service

@@ -47,7 +47,7 @@ func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
 		Platform: "snes", Limit: 1,
 	})
 	require.NoError(t, err)
-	require.Equal(t, []rom.Game{game}, games)
+	require.Equal(t, rom.GamePage{Games: []rom.Game{game}}, games)
 	err = application.Command.StartDownload.Handle(ctx, command.StartDownload{
 		GameID: "warm",
 		Queued: func(rom.Job) { t.Fatal("closed downloads queued a job") },

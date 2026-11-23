@@ -29,8 +29,8 @@ type failingListings struct {
 
 func (f failingListings) PlatformCounts(context.Context) []rom.PlatformCount { return nil }
 
-func (f failingListings) Games(context.Context, string, string, int, int) ([]rom.Game, error) {
-	return nil, f.err
+func (f failingListings) Games(context.Context, string, string, int, int) (rom.GamePage, error) {
+	return rom.GamePage{}, f.err
 }
 
 func (f failingListings) Game(context.Context, string) (rom.Game, bool, error) {

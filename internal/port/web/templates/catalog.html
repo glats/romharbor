@@ -38,6 +38,7 @@ button:disabled { opacity:.5; cursor:progress; }
 .status.failed { color:var(--bad); }
 .detail { display:grid; gap:2rem; grid-template-columns:220px 1fr; align-items:start; }
 .error { background:#3a1d22; border:1px solid #7a2b36; padding:.8rem 1rem; border-radius:8px; }
+.notice { background:#3a3320; border:1px solid #7a6b2b; padding:.8rem 1rem; border-radius:8px; }
 .jobs { margin-top:2rem; border-top:1px solid var(--line); padding-top:1rem; }
 .jobs li { color:var(--dim); font-size:.85rem; }
 table.files { width:100%; border-collapse:collapse; margin:1rem 0; }
@@ -53,6 +54,9 @@ code { background:#0c0e13; padding:.1rem .35rem; border-radius:4px; }
 </header>
 <main>
 {{if .Error}}<p class="error">{{.Error}}</p>{{end}}
+{{- if .FailedSources}}
+<p class="notice">Some sources did not respond: {{join .FailedSources ", "}}. Showing results from the others.</p>
+{{- end}}
 
 {{if .Platforms}}
 <h1>Download ROMs, organized by platform</h1>

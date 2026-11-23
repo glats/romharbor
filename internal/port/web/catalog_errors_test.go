@@ -29,15 +29,15 @@ type brokenListings struct {
 
 func (l *brokenListings) PlatformCounts(context.Context) []rom.PlatformCount { return nil }
 
-func (l *brokenListings) Games(_ context.Context, platform, _ string, offset, limit int) ([]rom.Game, error) {
+func (l *brokenListings) Games(_ context.Context, platform, _ string, offset, limit int) (rom.GamePage, error) {
 	l.offset, l.limit = offset, limit
 	if l.gamesErr != nil {
-		return nil, l.gamesErr
+		return rom.GamePage{}, l.gamesErr
 	}
 	if _, ok := rom.PlatformBySlug(platform); platform != "" && !ok {
-		return nil, rom.ErrUnknownPlatform
+		return rom.GamePage{}, rom.ErrUnknownPlatform
 	}
-	return l.games, nil
+	return rom.GamePage{Games: l.games}, nil
 }
 
 func (l *brokenListings) Game(_ context.Context, id string) (rom.Game, bool, error) {

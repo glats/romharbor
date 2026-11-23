@@ -2,6 +2,7 @@ package romlistings
 
 import (
 	"context"
+	"log/slog"
 	"testing"
 
 	"app.ddd/internal/adapter"
@@ -12,12 +13,12 @@ func TestRegistrySkipsSourcesWithoutPlatform(t *testing.T) {
 	r := newRegistry([]adapter.RomSource{
 		&fakeSource{name: "all", games: []rom.Game{{ID: "a", Source: "all"}}},
 		&fakeSource{name: "snes-only", platforms: []string{"snes"}, games: []rom.Game{{ID: "b", Source: "snes-only"}}},
-	})
+	}, DefaultSourceTimeout, slog.Default())
 	games, err := r.search(context.Background(), rom.Query{Platform: "gb"})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(games) != 1 || games[0].Source != "all" {
+	if len(games.Games) != 1 || games.Games[0].Source != "all" {
 		t.Fatalf("got %+v", games)
 	}
 }
@@ -26,12 +27,12 @@ func TestRegistryKeepsFirstOccurrenceOfEachGameID(t *testing.T) {
 	r := newRegistry([]adapter.RomSource{
 		&fakeSource{name: "first", games: []rom.Game{{ID: "same", Source: "first"}}},
 		&fakeSource{name: "second", games: []rom.Game{{ID: "same", Source: "second"}, {ID: "other", Source: "second"}}},
-	})
+	}, DefaultSourceTimeout, slog.Default())
 	games, err := r.search(context.Background(), rom.Query{})
 	if err != nil {
 		t.Fatalf("search: %v", err)
 	}
-	if len(games) != 2 || games[0].Source != "first" || games[1].ID != "other" {
+	if len(games.Games) != 2 || games.Games[0].Source != "first" || games.Games[1].ID != "other" {
 		t.Fatalf("got %+v", games)
 	}
 }

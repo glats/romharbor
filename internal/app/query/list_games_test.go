@@ -51,13 +51,13 @@ func TestListGamesPagesTheListingAndFiltersByText(t *testing.T) {
 
 	page, err := handler.Handle(ctx, ListGames{Platform: "snes", Offset: 1, Limit: 1})
 	require.NoError(t, err)
-	require.Len(t, page, 1)
-	assert.Equal(t, "2", page[0].ID)
+	require.Len(t, page.Games, 1)
+	assert.Equal(t, "2", page.Games[0].ID)
 
 	matches, err := handler.Handle(ctx, ListGames{Platform: "snes", Text: "MARIO", Limit: 10})
 	require.NoError(t, err)
-	require.Len(t, matches, 2)
-	for _, game := range matches {
+	require.Len(t, matches.Games, 2)
+	for _, game := range matches.Games {
 		assert.True(t, strings.Contains(strings.ToLower(game.Title), "mario"), game.Title)
 	}
 }

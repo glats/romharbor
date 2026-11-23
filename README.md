@@ -15,6 +15,11 @@ into a library organized by platform. Run it on your own server and keep your li
 Archive.org is the default source. `dlarchive` and `lolroms` are opt-in; `lolroms` requires search text.
 Source availability and metadata depend on the upstream provider.
 
+ROMHarbor queries the enabled sources in parallel, each one under its own time limit. The order of
+the source list is the priority order: when two sources report the same game, the one listed first
+wins. When a source does not answer, the catalog shows the games of the other sources and names the
+source that failed.
+
 ROMHarbor does not include ROMs, BIOS files, keys, an emulator, or device-transfer tools.
 Only download content you are authorized to use. It is an acquisition tool, not a replacement
 for a library gallery such as RomM.
@@ -100,7 +105,7 @@ an existing file. For a standalone executable, run `go build -o romharbor ./cmd/
 | `HTTP_ADDR` | `:8080` | Listen address |
 | `ROM_LIBRARY_PATH` | `./data/roms` | Downloaded games, grouped by platform |
 | `ROM_CACHE_PATH` | `./data/romcache` | Cached source listings |
-| `ROM_SOURCES` | `archive.org` | Comma-separated enabled sources |
+| `ROM_SOURCES` | `archive.org` | Comma-separated enabled sources, in priority order |
 | `ROM_CACHE_TTL` | `24h` | Listing cache freshness |
 | `DATABASE_PATH` | `./data/app.db` | SQLite database |
 
