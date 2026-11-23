@@ -25,9 +25,9 @@ func newRepository(t *testing.T) *UserRepository {
 	t.Helper()
 
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
+	require.NoError(t, Migrate(t.Context(), path))
 
-	db, err := Open(path)
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -204,8 +204,8 @@ func TestEveryMethodHonorsTheContext(t *testing.T) {
 
 func TestOtherErrorsAreWrappedAndNotMappedToDomainErrors(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
-	db, err := Open(path)
+	require.NoError(t, Migrate(t.Context(), path))
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	repo := NewUserRepository(db)
 	require.NoError(t, db.Close())
@@ -240,14 +240,14 @@ func TestOtherErrorsAreWrappedAndNotMappedToDomainErrors(t *testing.T) {
 func TestDataSurvivesClosingAndReopeningTheFile(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
+	require.NoError(t, Migrate(t.Context(), path))
 
-	first, err := Open(path)
+	first, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	seed(t, NewUserRepository(first), ada)
 	require.NoError(t, first.Close())
 
-	second, err := Open(path)
+	second, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = second.Close() })
 

@@ -13,7 +13,7 @@ import (
 func TestOpenConfiguresTheConnection(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "app.db")
 
-	db, err := Open(path)
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -42,7 +42,18 @@ func TestOpenFailsWhenTheDirectoryCannotBeCreated(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
 
-	_, err := Open(filepath.Join(blocker, "app.db"))
+	_, err := Open(t.Context(), filepath.Join(blocker, "app.db"))
 
 	assert.Error(t, err)
+}
+
+func TestOpenFailsWhenTheContextIsAlreadyCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	path := filepath.Join(t.TempDir(), "sub", "app.db")
+
+	_, err := Open(ctx, path)
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.NoDirExists(t, filepath.Dir(path), "a cancelled Open must not touch the filesystem")
 }

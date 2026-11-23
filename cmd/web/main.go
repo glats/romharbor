@@ -93,11 +93,11 @@ func parseFlags(args []string, cfg config.Config, out io.Writer) (config.Config,
 }
 
 func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
-	if err := sqlite.Migrate(cfg.Database.Path); err != nil {
+	if err := sqlite.Migrate(ctx, cfg.Database.Path); err != nil {
 		return err
 	}
 
-	db, err := sqlite.Open(cfg.Database.Path)
+	db, err := sqlite.Open(ctx, cfg.Database.Path)
 	if err != nil {
 		return err
 	}

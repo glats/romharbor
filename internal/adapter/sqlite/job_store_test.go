@@ -40,8 +40,8 @@ func (c *clock) Advance(d time.Duration) {
 func newJobStore(t *testing.T) (*JobStore, *clock, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
-	db, err := Open(path)
+	require.NoError(t, Migrate(t.Context(), path))
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	clk := &clock{now: time.Date(2026, 11, 16, 12, 0, 0, 0, time.Local)}
@@ -289,7 +289,7 @@ func TestJobsSurviveReopeningTheDatabase(t *testing.T) {
 	claim, _, _ := store.Claim(ctx, 10*time.Second)
 	require.NoError(t, store.Heartbeat(ctx, claim.Job.ID, 300, 1000, 10*time.Second))
 
-	db, err := Open(path)
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	reopened := NewJobStore(db)

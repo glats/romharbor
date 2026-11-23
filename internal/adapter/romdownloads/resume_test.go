@@ -77,7 +77,7 @@ func TestARestartResumesAPartialFileWithARangeRequest(t *testing.T) {
 	assert.Empty(t, errText)
 
 	phase.Store(1)
-	db, err := sqlite.Open(path)
+	db, err := sqlite.Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	reopened := sqlite.NewJobStore(db)

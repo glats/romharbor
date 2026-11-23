@@ -21,7 +21,7 @@ func TestConcurrentWritersNeverSeeADatabaseLockError(t *testing.T) {
 	store, _, path := newJobStore(t)
 	store.Now = time.Now
 	ctx := context.Background()
-	db, err := Open(path)
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	users := NewUserRepository(db)

@@ -21,8 +21,8 @@ func person(id, name, email string) user.User {
 
 func TestHostileDataRoundTripsUnchanged(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hostile.db")
-	require.NoError(t, sqlite.Migrate(path))
-	db, err := sqlite.Open(path)
+	require.NoError(t, sqlite.Migrate(t.Context(), path))
+	db, err := sqlite.Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	repo := sqlite.NewUserRepository(db)
@@ -47,11 +47,11 @@ func TestHostileDataRoundTripsUnchanged(t *testing.T) {
 
 func TestRollbackThenMigrateRestoresTheSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "rollback.db")
-	require.NoError(t, sqlite.Migrate(path))
-	require.NoError(t, sqlite.Migrate(path))
-	require.NoError(t, sqlite.Rollback(path))
-	require.NoError(t, sqlite.Migrate(path))
-	db, err := sqlite.Open(path)
+	require.NoError(t, sqlite.Migrate(t.Context(), path))
+	require.NoError(t, sqlite.Migrate(t.Context(), path))
+	require.NoError(t, sqlite.Rollback(t.Context(), path))
+	require.NoError(t, sqlite.Migrate(t.Context(), path))
+	db, err := sqlite.Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -64,8 +64,8 @@ func TestMigrateAndOpenUseTheSameFileForPathsWithSpacesAndUnicode(t *testing.T) 
 	for _, name := range []string{"with space.db", "ü.db", "日本語.db"} {
 		t.Run(name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), name)
-			require.NoError(t, sqlite.Migrate(path))
-			db, err := sqlite.Open(path)
+			require.NoError(t, sqlite.Migrate(t.Context(), path))
+			db, err := sqlite.Open(t.Context(), path)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = db.Close() })
 			repo := sqlite.NewUserRepository(db)
@@ -85,8 +85,8 @@ func TestPathsThatTheDriversReadDifferentlyAreRejected(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, name)
 
-			assert.ErrorContains(t, sqlite.Migrate(path), "must not contain")
-			_, err := sqlite.Open(path)
+			assert.ErrorContains(t, sqlite.Migrate(t.Context(), path), "must not contain")
+			_, err := sqlite.Open(t.Context(), path)
 			assert.ErrorContains(t, err, "must not contain")
 			entries, readErr := os.ReadDir(dir)
 			require.NoError(t, readErr)

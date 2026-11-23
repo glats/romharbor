@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"os"
 	"path/filepath"
@@ -46,8 +47,8 @@ func appliedMigrations(t *testing.T, path string) int {
 func TestMigrateCreatesTheSchemaAndIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "nested", "app.db")
 
-	require.NoError(t, Migrate(path))
-	require.NoError(t, Migrate(path))
+	require.NoError(t, Migrate(t.Context(), path))
+	require.NoError(t, Migrate(t.Context(), path))
 
 	assert.Equal(t, []string{"jobs", "schema_migrations", "users"}, tableNames(t, path))
 	assert.Equal(t, 2, appliedMigrations(t, path))
@@ -55,27 +56,37 @@ func TestMigrateCreatesTheSchemaAndIsIdempotent(t *testing.T) {
 
 func TestRollbackRemovesTheLastMigrationAndMigrateRestoresIt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
+	require.NoError(t, Migrate(t.Context(), path))
 
-	require.NoError(t, Rollback(path))
+	require.NoError(t, Rollback(t.Context(), path))
 	assert.Equal(t, []string{"schema_migrations", "users"}, tableNames(t, path))
 
-	require.NoError(t, Migrate(path))
+	require.NoError(t, Migrate(t.Context(), path))
 	assert.Equal(t, []string{"jobs", "schema_migrations", "users"}, tableNames(t, path))
 }
 
 func TestRollbackFailsWhenNothingIsApplied(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
-	require.NoError(t, Rollback(path))
-	require.NoError(t, Rollback(path))
+	require.NoError(t, Migrate(t.Context(), path))
+	require.NoError(t, Rollback(t.Context(), path))
+	require.NoError(t, Rollback(t.Context(), path))
 
-	assert.Error(t, Rollback(path))
+	assert.Error(t, Rollback(t.Context(), path))
 }
 
 func TestMigrateFailsWhenTheDirectoryCannotBeCreated(t *testing.T) {
 	blocker := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(blocker, nil, 0o600))
 
-	assert.Error(t, Migrate(filepath.Join(blocker, "app.db")))
+	assert.Error(t, Migrate(t.Context(), filepath.Join(blocker, "app.db")))
+}
+
+func TestMigrateAndRollbackFailWhenTheContextIsAlreadyCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	path := filepath.Join(t.TempDir(), "sub", "app.db")
+
+	require.ErrorIs(t, Migrate(ctx, path), context.Canceled)
+	require.ErrorIs(t, Rollback(ctx, path), context.Canceled)
+	assert.NoDirExists(t, filepath.Dir(path))
 }

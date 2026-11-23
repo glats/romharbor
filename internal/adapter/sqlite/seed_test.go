@@ -15,8 +15,8 @@ import (
 
 func TestSeedIsRepeatableAndDoesNotOverwriteUsers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
-	db, err := Open(path)
+	require.NoError(t, Migrate(t.Context(), path))
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	ctx := context.Background()
@@ -38,8 +38,8 @@ func TestSeedIsRepeatableAndDoesNotOverwriteUsers(t *testing.T) {
 
 func TestSeedFilesAreOrderedAndAtomic(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
-	db, err := Open(path)
+	require.NoError(t, Migrate(t.Context(), path))
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	files := fstest.MapFS{
@@ -61,8 +61,8 @@ func TestSeedFilesAreOrderedAndAtomic(t *testing.T) {
 
 func TestSeedPreservesAnExistingDemoID(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
-	db, err := Open(path)
+	require.NoError(t, Migrate(t.Context(), path))
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	repo := NewUserRepository(db)
@@ -81,8 +81,8 @@ func TestSeedPreservesAnExistingDemoID(t *testing.T) {
 
 func TestSeedCancellationAndUnreadableFilesPreserveData(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, Migrate(path))
-	db, err := Open(path)
+	require.NoError(t, Migrate(t.Context(), path))
+	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	ctx, cancel := context.WithCancel(context.Background())

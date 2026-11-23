@@ -50,8 +50,8 @@ func blocksUntilCancelled(started chan<- struct{}) func(context.Context, rom.Ins
 func openStore(t *testing.T) (*sqlite.JobStore, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, sqlite.Migrate(path))
-	db, err := sqlite.Open(path)
+	require.NoError(t, sqlite.Migrate(t.Context(), path))
+	db, err := sqlite.Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return sqlite.NewJobStore(db), path

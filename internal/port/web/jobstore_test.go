@@ -18,8 +18,8 @@ import (
 func newJobs(t *testing.T) *sqlite.JobStore {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "app.db")
-	require.NoError(t, sqlite.Migrate(path))
-	db, err := sqlite.Open(path)
+	require.NoError(t, sqlite.Migrate(t.Context(), path))
+	db, err := sqlite.Open(t.Context(), path)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return sqlite.NewJobStore(db)

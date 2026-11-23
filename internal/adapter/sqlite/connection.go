@@ -1,17 +1,25 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/stephenafamo/bob"
 )
 
-func Open(path string) (bob.DB, error) {
+const pingTimeout = 5 * time.Second
+
+func Open(ctx context.Context, path string) (bob.DB, error) {
+	if err := ctx.Err(); err != nil {
+		return bob.DB{}, err
+	}
+
 	if err := validatePath(path); err != nil {
 		return bob.DB{}, err
 	}
@@ -25,7 +33,10 @@ func Open(path string) (bob.DB, error) {
 		return bob.DB{}, fmt.Errorf("open database: %w", err)
 	}
 
-	if err := sqlDB.Ping(); err != nil {
+	pingCtx, cancel := context.WithTimeout(ctx, pingTimeout)
+	defer cancel()
+
+	if err := sqlDB.PingContext(pingCtx); err != nil {
 		_ = sqlDB.Close()
 		return bob.DB{}, fmt.Errorf("connect to database: %w", err)
 	}

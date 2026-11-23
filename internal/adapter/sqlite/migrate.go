@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net/url"
@@ -36,7 +37,13 @@ func newDBMate(path string) (*dbmate.DB, error) {
 	return db, nil
 }
 
-func Migrate(path string) error {
+// Migrate and Rollback check ctx before they start; dbmate cannot interrupt a
+// migration that is already running, and doing so would leave it half applied.
+func Migrate(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	db, err := newDBMate(path)
 	if err != nil {
 		return err
@@ -49,7 +56,11 @@ func Migrate(path string) error {
 	return nil
 }
 
-func Rollback(path string) error {
+func Rollback(ctx context.Context, path string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	db, err := newDBMate(path)
 	if err != nil {
 		return err
