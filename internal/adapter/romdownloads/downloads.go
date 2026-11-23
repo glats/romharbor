@@ -2,6 +2,7 @@ package romdownloads
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -183,9 +184,10 @@ func (d *Downloads) run(claim rom.JobClaim) {
 	total.Store(claim.Job.Total)
 	stopBeat := make(chan struct{})
 	beatDone := make(chan struct{})
+	var lost atomic.Bool
 	go func() {
 		defer close(beatDone)
-		d.heartbeat(claim.Job.ID, &downloaded, &total, stopBeat)
+		d.heartbeat(claim.Job.ID, &downloaded, &total, stopBeat, &lost, cancel)
 	}()
 
 	result, err := d.library.Install(ctx, claim.Request, func(done, size int64) {
@@ -197,10 +199,18 @@ func (d *Downloads) run(claim rom.JobClaim) {
 	close(stopBeat)
 	<-beatDone
 
+	if lost.Load() {
+		return
+	}
+
 	persist, stop := context.WithTimeout(context.WithoutCancel(d.lifetime), persistTimeout)
 	defer stop()
 	if err == nil {
 		if beatErr := d.queue.Heartbeat(persist, claim.Job.ID, downloaded.Load(), total.Load(), d.Lease); beatErr != nil {
+			if errors.Is(beatErr, rom.ErrLeaseLost) {
+				d.logger.Warn("download lease lost", "job", claim.Job.ID, "error", beatErr)
+				return
+			}
 			d.logger.Warn("record final download progress", "job", claim.Job.ID, "error", beatErr)
 		}
 	}
@@ -215,6 +225,9 @@ func (d *Downloads) finish(ctx context.Context, claim rom.JobClaim, result rom.I
 		persistErr = d.queue.Complete(ctx, id, result)
 	case d.lifetime.Err() != nil:
 		persistErr = d.queue.Release(ctx, id)
+	case errors.Is(err, rom.ErrNotRetryable):
+		d.logger.Error("download failed permanently", "game", claim.Job.Title, "attempt", claim.Attempt, "error", err)
+		persistErr = d.queue.Fail(ctx, id, err)
 	case claim.Attempt < d.MaxAttempts:
 		d.logger.Warn("download failed, retrying", "game", claim.Job.Title, "attempt", claim.Attempt, "error", err)
 		persistErr = d.queue.Retry(ctx, id, err, d.Now().Add(d.Backoff(claim.Attempt)))
@@ -223,11 +236,15 @@ func (d *Downloads) finish(ctx context.Context, claim rom.JobClaim, result rom.I
 		persistErr = d.queue.Fail(ctx, id, err)
 	}
 	if persistErr != nil {
+		if errors.Is(persistErr, rom.ErrLeaseLost) {
+			d.logger.Warn("download lease lost", "job", id, "error", persistErr)
+			return
+		}
 		d.logger.Error("record download outcome", "job", id, "error", persistErr)
 	}
 }
 
-func (d *Downloads) heartbeat(id string, downloaded, total *atomic.Int64, stop <-chan struct{}) {
+func (d *Downloads) heartbeat(id string, downloaded, total *atomic.Int64, stop <-chan struct{}, lost *atomic.Bool, cancel context.CancelFunc) {
 	ticker := time.NewTicker(d.ProgressEvery)
 	defer ticker.Stop()
 	for {
@@ -235,11 +252,19 @@ func (d *Downloads) heartbeat(id string, downloaded, total *atomic.Int64, stop <
 		case <-stop:
 			return
 		case <-ticker.C:
-			ctx, cancel := context.WithTimeout(context.WithoutCancel(d.lifetime), persistTimeout)
-			if err := d.queue.Heartbeat(ctx, id, downloaded.Load(), total.Load(), d.Lease); err != nil {
-				d.logger.Warn("record download progress", "job", id, "error", err)
+			ctx, stopBeat := context.WithTimeout(context.WithoutCancel(d.lifetime), persistTimeout)
+			err := d.queue.Heartbeat(ctx, id, downloaded.Load(), total.Load(), d.Lease)
+			stopBeat()
+			if err == nil {
+				continue
 			}
-			cancel()
+			if errors.Is(err, rom.ErrLeaseLost) {
+				lost.Store(true)
+				d.logger.Warn("download lease lost", "job", id, "error", err)
+				cancel()
+				return
+			}
+			d.logger.Warn("record download progress", "job", id, "error", err)
 		}
 	}
 }

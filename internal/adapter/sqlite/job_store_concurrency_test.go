@@ -29,10 +29,14 @@ func TestConcurrentWritersNeverSeeADatabaseLockError(t *testing.T) {
 		mustEnqueue(t, store, fmt.Sprintf("seed%d", i))
 	}
 
-	var locked, other, operations atomic.Int64
+	var locked, other, operations, lost atomic.Int64
 	check := func(err error) {
 		operations.Add(1)
 		if err == nil {
+			return
+		}
+		if errors.Is(err, rom.ErrLeaseLost) {
+			lost.Add(1)
 			return
 		}
 		if message := strings.ToLower(err.Error()); strings.Contains(message, "locked") || strings.Contains(message, "busy") {

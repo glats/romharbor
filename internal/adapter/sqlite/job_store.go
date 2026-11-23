@@ -241,10 +241,15 @@ func (s *JobStore) mustGet(ctx context.Context, id int64) (rom.Job, error) {
 func (s *JobStore) updateRunning(ctx context.Context, id, statement string, args ...any) error {
 	number, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
-		return nil
+		return fmt.Errorf("update job %s: %w", id, rom.ErrJobNotFound)
 	}
-	if _, err := s.db.ExecContext(ctx, statement, append(args, number)...); err != nil {
-		return fmt.Errorf("update job %s: %w", id, err)
+	res, err := s.db.ExecContext(ctx, statement, append(args, number)...)
+	rows, err := affected(res, err, fmt.Sprintf("update job %s", id))
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("update job %s: %w", id, rom.ErrLeaseLost)
 	}
 	return nil
 }

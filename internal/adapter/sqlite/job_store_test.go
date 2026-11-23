@@ -239,21 +239,24 @@ func TestOutcomesCloseTheJob(t *testing.T) {
 	assert.Equal(t, 1, again.Attempt, "a release does not count as an attempt")
 }
 
-func TestFinishedJobsIgnoreLateUpdates(t *testing.T) {
+func TestFinishedJobsRejectLateUpdatesWithALostLease(t *testing.T) {
 	store, _, _ := newJobStore(t)
 	ctx := context.Background()
 	mustEnqueue(t, store, "a")
 	claim, _, _ := store.Claim(ctx, time.Minute)
 	require.NoError(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/lib/a.nes", Size: 10}))
 
-	require.NoError(t, store.Heartbeat(ctx, claim.Job.ID, 1, 1, time.Minute))
-	require.NoError(t, store.Fail(ctx, claim.Job.ID, errors.New("late")))
-	require.NoError(t, store.Release(ctx, claim.Job.ID))
+	assert.ErrorIs(t, store.Heartbeat(ctx, claim.Job.ID, 1, 1, time.Minute), rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/lib/b.nes", Size: 20}), rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Retry(ctx, claim.Job.ID, errors.New("late"), time.Now()), rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Fail(ctx, claim.Job.ID, errors.New("late")), rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Release(ctx, claim.Job.ID), rom.ErrLeaseLost)
 
 	got, _, _ := store.Get(ctx, claim.Job.ID)
 	assert.Equal(t, rom.JobDone, got.Status)
 	assert.Empty(t, got.Error)
 	assert.EqualValues(t, 10, got.Total)
+	assert.Equal(t, "/lib/a.nes", got.Path)
 }
 
 func TestRecoverRequeuesExpiredLeasesOnly(t *testing.T) {
