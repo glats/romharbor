@@ -18,6 +18,13 @@ Criteria used by the audit (derived from the user's corrections and AGENTS.md): 
 - T1 [S4] complete (D1-D4 closed) — close the open decisions D1..D4 one at a time and record each answer verbatim in the Log.
 - T2 [S3] first batch complete — checks first: lint and depguard rules for the patterns the ledger classes as rule-expressible, each proven to fail on a reproduction and pass on the base. Rule files need user approval.
 - T3 [S5] K1 complete (independent verifier PASS; native review approved in two slices), K2..K8 pending — corrections by cluster, in dependency order (K1 transport, K2 errors and install integrity, K3 ports and boundaries, K4 state and memory, K5 persistence, K6 compatibility code, K7 surface, K8 composition root). Each cluster is expanded only when selected.
+- T3.K2 [S5] in progress — errors and install integrity. Shared contract written first by the parent: `rom.ErrNotRetryable` (wrapped by any failure that a retry cannot fix) and `rom.ErrLeaseLost` (returned by the job queue when the worker no longer holds the job). Units, disjoint surfaces, parallel writers in worktrees, each unit reviewed natively right after its commit:
+  - K2-U1 install integrity, `internal/adapter/romlibrary/**`: L-06, L-05, L-08 (test first to confirm), L-13, L-14, L-10, L-24 and the library side of L-15. Route: delegated (parallel unit).
+  - K2-U2 job lease and retry policy, `internal/adapter/sqlite/job_store*.go`, `internal/adapter/romdownloads/**`: S-03, A-11 and the runner side of L-15. Route: delegated (parallel unit).
+  - K2-U3 errors at the HTTP edge, `internal/app/command/start_download*.go`, `internal/port/web/catalog*.go`: A-14, A-18, A-19. Route: delegated (parallel unit).
+  - K2-U4 listing and source errors, `internal/adapter/romlistings/**`, `internal/adapter/romcache/**`, `internal/adapter/romsource/{archiveorg,lolroms}*.go`: A-05, R-15, R-16, R-12 and the error half of S-14 (the missing `ctx` on the cache port moves to K3 with A-08). Route: delegated (parallel unit).
+  - K2-P parent inline after the units: S-24 (`ctx` for `Open`, `Migrate`, `Rollback`, bounded `Ping`), integration, seam check.
+  - Pending user decisions: L-23 (one ROM per archive loses multi-file sets such as .cue+.bin) and A-07 (registry merge: first source wins, errors dropped when another source returns games).
 - T4 [S5] pending — closure proof and independent verification for clusters that touch concurrency, persisted formats or contracts others consume.
 
 Route: all inline unless a cluster names a writer reason; no unit is expanded before its selection.

@@ -8,4 +8,6 @@ var (
 	ErrUnknownPlatform = errors.New("unknown platform")
 	ErrShuttingDown    = errors.New("catalog is shutting down")
 	ErrJobNotFound     = errors.New("job not found")
+	ErrNotRetryable    = errors.New("retrying cannot fix this failure")
+	ErrLeaseLost       = errors.New("job lease lost")
 )
