@@ -110,7 +110,7 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 		body   string
 		status int
 		want   string
-	}{{`{"id":"missing"}`, 404, "{\"error\":\"game not found\"}\n"}, {`{"id":"nofile"}`, 400, "{\"error\":\"game has no file\"}\n"}, {`{`, 400, "{\"error\":\"unexpected EOF\"}\n"}} {
+	}{{`{"id":"missing"}`, 404, "{\"error\":\"game not found\"}\n"}, {`{"id":"nofile"}`, 400, "{\"error\":\"game has no file\"}\n"}, {`{`, 400, "{\"error\":\"invalid request body\"}\n"}} {
 		w := independentRequest(h, "POST", "/api/download", c.body)
 		if w.Code != c.status || w.Body.String() != c.want {
 			t.Fatal(w.Code, w.Body.String())

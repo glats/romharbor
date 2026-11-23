@@ -226,3 +226,19 @@ func TestCatalogGamesCapsTheLimitAtTheSourcePageSize(t *testing.T) {
 	require.Equal(t, http.StatusOK, do(t, handler, http.MethodGet, "/api/games?offset=5").Code)
 	assert.Equal(t, 5, listings.offset)
 }
+
+func TestCatalogDownloadAnswersAMalformedBodyWithoutTheDecoderText(t *testing.T) {
+	for _, body := range []string{`{`, `{"id":5}`, `not json`} {
+		t.Run(body, func(t *testing.T) {
+			handler, logs := newBrokenCatalogHandler(t, &brokenListings{}, brokenJobs{}, brokenLibrary{}, brokenDownloads{})
+			req := httptest.NewRequest(http.MethodPost, "/api/download", bytes.NewBufferString(body))
+			rec := httptest.NewRecorder()
+
+			handler.ServeHTTP(rec, req)
+
+			assert.Equal(t, http.StatusBadRequest, rec.Code)
+			assert.JSONEq(t, `{"error":"invalid request body"}`, rec.Body.String())
+			assert.Contains(t, logs.String(), "request failed")
+		})
+	}
+}

@@ -154,7 +154,7 @@ func (h *Handler) catalogRender(w http.ResponseWriter, status int, data catalogP
 func (h *Handler) catalogAPIPlatforms(w http.ResponseWriter, r *http.Request) {
 	counts, err := h.app.Query.ListPlatforms.Handle(r.Context(), query.ListPlatforms{})
 	if err != nil {
-		h.catalogAPIFail(w, r, err, http.StatusInternalServerError)
+		h.failJSON(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	out := []catalogPlatformCount{}
@@ -190,7 +190,7 @@ func (h *Handler) catalogAPIGames(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.catalogAPIFail(w, r, err, http.StatusBadGateway)
+		h.failJSON(w, r, http.StatusBadGateway, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"games": games})
@@ -203,7 +203,7 @@ func (h *Handler) catalogAPIGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.catalogAPIFail(w, r, err, http.StatusInternalServerError)
+		h.failJSON(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"game": game})
@@ -212,7 +212,7 @@ func (h *Handler) catalogAPIGame(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) catalogAPIJobs(w http.ResponseWriter, r *http.Request) {
 	jobs, err := h.app.Query.ListJobs.Handle(r.Context(), query.ListJobs{})
 	if err != nil {
-		h.catalogAPIFail(w, r, err, http.StatusInternalServerError)
+		h.failJSON(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeConditionalJSON(w, r, map[string]any{"jobs": jobs})
@@ -225,7 +225,7 @@ func (h *Handler) catalogAPIJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		h.catalogAPIFail(w, r, err, http.StatusInternalServerError)
+		h.failJSON(w, r, http.StatusInternalServerError, err)
 		return
 	}
 	writeConditionalJSON(w, r, job)
@@ -236,7 +236,8 @@ func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
 		ID string `json:"id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error()})
+		h.logFailure(r, err)
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request body"})
 		return
 	}
 	var queued rom.Job
@@ -254,21 +255,16 @@ func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, rom.ErrShuttingDown):
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "service is shutting down"})
 	case err != nil:
-		h.catalogAPIFail(w, r, err, http.StatusInternalServerError)
+		h.failJSON(w, r, http.StatusInternalServerError, err)
 	default:
 		writeJSON(w, http.StatusAccepted, queued)
 	}
 }
 
 func (h *Handler) catalogFail(w http.ResponseWriter, r *http.Request, err error, status int, data catalogPageData) {
-	h.logger.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+	h.logFailure(r, err)
 	data.Error = genericErrorMessage
 	h.catalogRender(w, status, data)
-}
-
-func (h *Handler) catalogAPIFail(w http.ResponseWriter, r *http.Request, err error, status int) {
-	h.logger.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
-	writeJSON(w, status, map[string]any{"error": genericErrorMessage})
 }
 
 func catalogPagingInt(raw string, fallback int) (int, bool) {

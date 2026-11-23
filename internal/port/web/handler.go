@@ -141,10 +141,19 @@ func (h *Handler) fail(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.As(err, &notFound) {
 		status, message = http.StatusNotFound, "User not found."
 	} else {
-		h.logger.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+		h.logFailure(r, err)
 	}
 
 	h.flash(w, r, status, message)
+}
+
+func (h *Handler) failJSON(w http.ResponseWriter, r *http.Request, status int, err error) {
+	h.logFailure(r, err)
+	writeJSON(w, status, map[string]any{"error": genericErrorMessage})
+}
+
+func (h *Handler) logFailure(r *http.Request, err error) {
+	h.logger.ErrorContext(r.Context(), "request failed", "method", r.Method, "path", r.URL.Path, "error", err)
 }
 
 func (h *Handler) flash(w http.ResponseWriter, r *http.Request, status int, message string) {
