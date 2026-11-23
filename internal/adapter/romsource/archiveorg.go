@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"path"
 	"sort"
@@ -19,6 +20,8 @@ import (
 const archiveOrgMaxMetadataBytes = 64 << 20
 
 var errBodyTooLarge = errors.New("response body exceeds the size limit")
+
+var errUnparsableSize = errors.New("file size is not a number")
 
 type boundedReader struct {
 	body      io.Reader
@@ -64,6 +67,8 @@ type ArchiveOrg struct {
 	BaseURL    string
 	// Sets maps a platform slug to the Internet Archive items that hold it.
 	Sets map[string][]string
+
+	logger *slog.Logger
 }
 
 // NewArchiveOrg returns the Internet Archive source with the curated sets.
@@ -84,6 +89,7 @@ func NewArchiveOrg(client archiveorgapi.HttpRequestDoer) *ArchiveOrg {
 			"psp":     {"non-redump_sony_playstation_portable"},
 			"arcade":  {"mame-merged"},
 		},
+		logger: slog.Default(),
 	}
 }
 
@@ -119,7 +125,7 @@ func (s *sizeValue) UnmarshalJSON(data []byte) error {
 		}
 		number, err := strconv.ParseInt(text, 10, 64)
 		if err != nil {
-			return nil
+			return fmt.Errorf("%w: %q", errUnparsableSize, text)
 		}
 		*s = sizeValue(number)
 		return nil
@@ -179,6 +185,10 @@ func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.
 	for _, f := range meta.Files {
 		var size sizeValue
 		if err := size.UnmarshalJSON(f.Size); err != nil {
+			if errors.Is(err, errUnparsableSize) {
+				a.logger.Error("archive.org file skipped", "item", item, "file", f.Name, "error", err)
+				continue
+			}
 			return nil, fmt.Errorf("metadata %s: size of %s: %w", item, f.Name, err)
 		}
 		if !rom.IsGameFile(f.Name) {

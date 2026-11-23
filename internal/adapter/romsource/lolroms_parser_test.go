@@ -223,10 +223,10 @@ func TestLolRomsBoundsResponseBody(t *testing.T) {
 	})
 
 	games, err := source.Search(context.Background(), rom.Query{Text: "game", Limit: 10})
-	if err != nil {
-		t.Fatalf("search: %v", err)
+	if !errors.Is(err, errBodyTooLarge) {
+		t.Fatalf("err = %v, want errBodyTooLarge", err)
 	}
-	assertLolRomsRows(t, lolRomsRows(t, source, games), []string{
-		"gb|Early (USA)|usa|/Nintendo/Game%20Boy/Early%20(USA).7z",
-	})
+	if games != nil {
+		t.Errorf("games = %+v, want nil", games)
+	}
 }

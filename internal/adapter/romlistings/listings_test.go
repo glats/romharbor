@@ -97,12 +97,84 @@ func TestStaleListingServedWhenSourcesFail(t *testing.T) {
 	}
 }
 
-func TestCacheWriteFailureIsReportedForEmptyText(t *testing.T) {
+func TestCacheWriteFailureKeepsTheFetchedGamesAndIsLogged(t *testing.T) {
+	logs := captureLogs(t)
 	listings := NewListings([]adapter.RomSource{gameSource{games: []rom.Game{{ID: "g", Title: "G"}}}}, failingStoreCache{}, time.Hour)
 
 	games, err := listings.Games(context.Background(), "snes", "", 0, 10)
+	if err != nil {
+		t.Fatalf("Games() error = %v, want the fetched games", err)
+	}
+	if len(games) != 1 || games[0].ID != "g" {
+		t.Fatalf("Games() = %+v, want the fetched game", games)
+	}
+	count, err := listings.Count(context.Background(), "snes")
+	if err != nil || count != 1 {
+		t.Fatalf("Count() = %d, %v; want the fetched count", count, err)
+	}
+	if got := logLines(logs.String(), "disk full"); got != 1 {
+		t.Fatalf("logged %d cache write failures, want 1: %s", got, logs.String())
+	}
+}
 
-	if err == nil || !strings.Contains(err.Error(), "write cache") || games != nil {
-		t.Fatalf("Games() = %+v, %v; want nil games and a write cache error", games, err)
+func TestPlatformCountsLogsAFailingPlatformAndKeepsTheCachedCount(t *testing.T) {
+	logs := captureLogs(t)
+	cache := &listingCache{listings: map[string]rom.Listing{
+		"gb": {Fetched: time.Now().Add(-48 * time.Hour), Games: []rom.Game{{ID: "cached", Title: "Cached"}}},
+	}}
+	sources := []adapter.RomSource{
+		platformSource{platforms: []string{"snes"}, games: []rom.Game{{ID: "live", Title: "Live"}}},
+		platformSource{platforms: []string{"gb"}, err: errors.New("upstream unavailable")},
+	}
+	listings := NewListings(sources, cache, time.Hour)
+
+	counts := listings.PlatformCounts(context.Background())
+
+	got := map[string]int{}
+	for _, c := range counts {
+		got[c.Slug] = c.Count
+	}
+	if got["gb"] != 1 {
+		t.Errorf("gb count = %d, want the cached count 1", got["gb"])
+	}
+	if got["snes"] != 1 {
+		t.Errorf("snes count = %d, want the live count 1", got["snes"])
+	}
+	if failed := logLines(logs.String(), "platform count failed", "platform=gb"); failed != 1 {
+		t.Errorf("logged %d failures for gb, want 1: %s", failed, logs.String())
+	}
+	if failed := logLines(logs.String(), "platform count failed", "platform=snes"); failed != 0 {
+		t.Errorf("logged %d failures for snes, want 0: %s", failed, logs.String())
+	}
+}
+
+func TestUnusableCacheEntryIsLoggedAndTreatedAsAMiss(t *testing.T) {
+	logs := captureLogs(t)
+	cache := &listingCache{loadErr: errors.New("cache entry is corrupt")}
+	listings := NewListings([]adapter.RomSource{gameSource{games: []rom.Game{{ID: "g", Title: "G"}}}}, cache, time.Hour)
+
+	games, err := listings.Games(context.Background(), "snes", "", 0, 10)
+	if err != nil {
+		t.Fatalf("Games() error = %v, want the fetched games", err)
+	}
+	if len(games) != 1 || games[0].ID != "g" {
+		t.Fatalf("Games() = %+v, want the fetched game", games)
+	}
+	if got := logLines(logs.String(), "cache entry is corrupt"); got != 1 {
+		t.Fatalf("logged %d unusable cache entries, want 1: %s", got, logs.String())
+	}
+}
+
+func TestMissingCacheEntryIsNotLogged(t *testing.T) {
+	logs := captureLogs(t)
+	listings := NewListings([]adapter.RomSource{gameSource{games: []rom.Game{{ID: "g", Title: "G"}}}}, &listingCache{}, time.Hour)
+
+	games, err := listings.Games(context.Background(), "snes", "", 0, 10)
+
+	if err != nil || len(games) != 1 {
+		t.Fatalf("Games() = %+v, %v; want the fetched game", games, err)
+	}
+	if strings.Contains(logs.String(), "cache") {
+		t.Fatalf("a missing cache entry was logged: %s", logs.String())
 	}
 }

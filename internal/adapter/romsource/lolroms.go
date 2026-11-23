@@ -82,10 +82,7 @@ func lolRomsConsolePlatform(console string) (string, bool) {
 // lolRomsArchive matches the file extensions the source publishes.
 var lolRomsArchive = regexp.MustCompile(`(?i)\.(7z|chd|zip)$`)
 
-// readAll reads a response body with a bounded size.
-func readAll(body io.Reader) ([]byte, error) {
-	return io.ReadAll(io.LimitReader(body, 8<<20))
-}
+const lolRomsMaxResponseBytes = 8 << 20
 
 // Search returns the games that match the query.
 func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
@@ -111,9 +108,10 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("lolroms: %s", resp.Status)
 	}
-	body, err := readAll(resp.Body)
+	resp.Body = boundBody(resp.Body, lolRomsMaxResponseBytes)
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lolroms: %w", err)
 	}
 
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
@@ -127,6 +125,9 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 
 	seen := map[string]bool{}
 	var games []rom.Game
+	entries := 0
+	undecodable := 0
+	var firstErr error
 	for _, href := range hrefs {
 		if !lolRomsArchive.MatchString(href) {
 			continue
@@ -135,8 +136,13 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 		if len(segments) < 3 {
 			continue
 		}
+		entries++
 		console, err := url.PathUnescape(segments[len(segments)-2])
 		if err != nil {
+			undecodable++
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		slug, ok := lolRomsConsolePlatform(console)
@@ -145,6 +151,10 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 		}
 		name, err := url.PathUnescape(path.Base(segments[len(segments)-1]))
 		if err != nil {
+			undecodable++
+			if firstErr == nil {
+				firstErr = err
+			}
 			continue
 		}
 		if seen[href] {
@@ -164,6 +174,9 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 				Archive: true,
 			}},
 		})
+	}
+	if entries > 0 && undecodable == entries {
+		return nil, fmt.Errorf("lolroms: %d of %d entries could not be decoded: %w", undecodable, entries, firstErr)
 	}
 	return rom.Page(games, q.Offset, q.Limit), nil
 }

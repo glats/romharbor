@@ -137,7 +137,7 @@ func TestArchiveOrgClientHonorsCancellation(t *testing.T) {
 	}
 }
 
-func TestArchiveOrgClientMapsFileSizeVariants(t *testing.T) {
+func TestArchiveOrgClientMapsFileSizeVariantsAndSkipsUnparsableSizes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"files":[
 			{"name":"Game One (USA).zip","size":10},
@@ -164,7 +164,6 @@ func TestArchiveOrgClientMapsFileSizeVariants(t *testing.T) {
 		"Game Three (USA)": 0,
 		"Game Four (USA)":  0,
 		"Game Five (USA)":  0,
-		"Game Six (USA)":   0,
 	}
 	if len(games) != len(want) {
 		t.Fatalf("got %d games, want %d", len(games), len(want))

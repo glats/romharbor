@@ -3,7 +3,8 @@ package romlistings
 import (
 	"context"
 	"errors"
-	"fmt"
+	"io/fs"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -18,6 +19,7 @@ type Listings struct {
 	registry *registry
 	cache    adapter.RomListingCache
 	ttl      time.Duration
+	logger   *slog.Logger
 
 	mu          sync.RWMutex
 	listings    map[string]rom.Listing
@@ -32,6 +34,7 @@ func NewListings(sources []adapter.RomSource, cache adapter.RomListingCache, ttl
 		registry:    newRegistry(sources),
 		cache:       cache,
 		ttl:         ttl,
+		logger:      slog.Default(),
 		listings:    map[string]rom.Listing{},
 		searchGames: map[string]rom.Game{},
 	}
@@ -42,6 +45,10 @@ func (l *Listings) PlatformCounts(ctx context.Context) []rom.PlatformCount {
 	for _, p := range rom.Platforms() {
 		count, err := l.Count(ctx, p.Slug)
 		if err != nil {
+			l.logger.Error("platform count failed", "platform", p.Slug, "error", err)
+			if last, ok := l.lastKnownCount(p.Slug); ok {
+				out = append(out, rom.PlatformCount{Platform: p, Count: last})
+			}
 			continue
 		}
 		out = append(out, rom.PlatformCount{Platform: p, Count: count})
@@ -123,7 +130,12 @@ func (l *Listings) listing(ctx context.Context, platform string) ([]rom.Game, er
 	if ok && time.Since(cached.Fetched) < l.ttl {
 		return cached.Games, nil
 	}
-	if disk, err := l.cache.Load(platform); err == nil && time.Since(disk.Fetched) < l.ttl {
+	disk, err := l.cache.Load(platform)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			l.logger.Error("listing cache entry unusable", "platform", platform, "error", err)
+		}
+	} else if time.Since(disk.Fetched) < l.ttl {
 		l.remember(platform, disk)
 		return disk.Games, nil
 	}
@@ -143,9 +155,23 @@ func (l *Listings) listing(ctx context.Context, platform string) ([]rom.Game, er
 	}
 	l.remember(platform, fresh)
 	if err := l.cache.Store(platform, fresh); err != nil {
-		return games, fmt.Errorf("write cache: %w", err)
+		l.logger.Error("listing cache write failed", "platform", platform, "error", err)
 	}
 	return games, nil
+}
+
+func (l *Listings) lastKnownCount(platform string) (int, bool) {
+	l.mu.RLock()
+	cached, ok := l.listings[platform]
+	l.mu.RUnlock()
+	if ok {
+		return len(cached.Games), true
+	}
+	disk, err := l.cache.Load(platform)
+	if err != nil {
+		return 0, false
+	}
+	return len(disk.Games), true
 }
 
 func (l *Listings) remember(platform string, listing rom.Listing) {

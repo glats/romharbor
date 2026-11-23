@@ -3,6 +3,8 @@ package romcache
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,6 +53,54 @@ func TestCacheKeepsLegacyListingFormat(t *testing.T) {
 func TestCacheLoadMissingFileFails(t *testing.T) {
 	if _, err := New(t.TempDir()).Load("snes"); err == nil {
 		t.Fatal("Load() error = nil for a missing listing")
+	}
+}
+
+func TestCacheLoadReportsCorruptAndUnreadableEntries(t *testing.T) {
+	for _, tt := range []struct {
+		name  string
+		write func(t *testing.T, path string)
+	}{
+		{
+			name: "corrupt content",
+			write: func(t *testing.T, path string) {
+				if err := os.WriteFile(path, []byte(`{"fetched":"not-a-time","games":`), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "unreadable entry",
+			write: func(t *testing.T, path string) {
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			tt.write(t, filepath.Join(dir, "snes.json"))
+
+			listing, err := New(dir).Load("snes")
+
+			if listing.Games != nil {
+				t.Errorf("Load() = %+v, want no listing", listing)
+			}
+			if !errors.Is(err, ErrCorrupt) {
+				t.Fatalf("Load() error = %v, want ErrCorrupt", err)
+			}
+		})
+	}
+}
+
+func TestCacheLoadMissingEntryIsNotCorrupt(t *testing.T) {
+	_, err := New(t.TempDir()).Load("snes")
+	if errors.Is(err, ErrCorrupt) {
+		t.Fatalf("Load() error = %v, a missing entry is not corrupt", err)
+	}
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("Load() error = %v, want fs.ErrNotExist", err)
 	}
 }
 

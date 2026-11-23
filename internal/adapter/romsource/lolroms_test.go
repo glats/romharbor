@@ -118,3 +118,34 @@ func TestLolRomsMatchesArchiveExtensionsCaseInsensitively(t *testing.T) {
 		t.Fatalf("games = %+v err = %v", games, err)
 	}
 }
+
+func TestLolRomsSkipsEntriesThatCannotBeDecoded(t *testing.T) {
+	source := newLolRomsSource(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<a href="/Nintendo/Game%20Boy/Good%20Game%20(USA).7z">Good</a>` +
+			`<a href="/Nintendo/Game%20Boy/Bad%zz.7z">Bad</a>` +
+			`<a href="/Nintendo/Game%zz/Other%20Game.7z">Other</a>`))
+	})
+
+	games, err := source.Search(context.Background(), rom.Query{Text: "game", Platform: "gb", Limit: 10})
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(games) != 1 || games[0].Title != "Good Game (USA)" {
+		t.Fatalf("games = %+v, want only the decodable entry", games)
+	}
+}
+
+func TestLolRomsReportsAnErrorWhenEveryEntryCannotBeDecoded(t *testing.T) {
+	source := newLolRomsSource(t, func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<a href="/Nintendo/Game%20Boy/Bad%zz.7z">Bad</a>`))
+	})
+
+	games, err := source.Search(context.Background(), rom.Query{Text: "game", Platform: "gb", Limit: 10})
+
+	if err == nil {
+		t.Fatal("search reported no error for a listing with no decodable entry")
+	}
+	if games != nil {
+		t.Errorf("games = %+v, want nil", games)
+	}
+}
