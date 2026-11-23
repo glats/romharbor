@@ -346,3 +346,57 @@ func TestNewDoesNotMutateTheCallersClient(t *testing.T) {
 
 	assert.Nil(t, client.CheckRedirect)
 }
+
+func TestOpenSendsIfRangeOnlyWithAValidator(t *testing.T) {
+	var gotIfRange atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotIfRange.Store(r.Header.Get("If-Range"))
+		_, _ = w.Write([]byte("0123456789"))
+	}))
+	t.Cleanup(srv.Close)
+
+	stream, err := New(srv.Client()).Open(context.Background(), srv.URL, 4, WithIfRange(`"v1"`))
+	require.NoError(t, err)
+	readAll(t, stream)
+	assert.Equal(t, `"v1"`, gotIfRange.Load())
+
+	stream, err = New(srv.Client()).Open(context.Background(), srv.URL, 4, WithIfRange(""))
+	require.NoError(t, err)
+	readAll(t, stream)
+	assert.Empty(t, gotIfRange.Load(), "an empty validator sends no If-Range")
+
+	stream, err = New(srv.Client()).Open(context.Background(), srv.URL, 4)
+	require.NoError(t, err)
+	readAll(t, stream)
+	assert.Empty(t, gotIfRange.Load())
+}
+
+func TestOpenReportsTheValidatorOfTheResponse(t *testing.T) {
+	tests := []struct {
+		name    string
+		headers map[string]string
+		want    string
+	}{
+		{"etag wins", map[string]string{"ETag": `"abc"`, "Last-Modified": "Mon, 02 Jan 2006 15:04:05 GMT"}, `"abc"`},
+		{"last modified", map[string]string{"Last-Modified": "Mon, 02 Jan 2006 15:04:05 GMT"}, "Mon, 02 Jan 2006 15:04:05 GMT"},
+		{"none", nil, ""},
+		{"weak etag is not a validator", map[string]string{"ETag": `W/"abc"`}, ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				for k, v := range tc.headers {
+					w.Header()[k] = []string{v}
+				}
+				_, _ = w.Write([]byte("0123456789"))
+			}))
+			t.Cleanup(srv.Close)
+
+			stream, err := New(srv.Client()).Open(context.Background(), srv.URL, 0)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, stream.Validator)
+			readAll(t, stream)
+		})
+	}
+}

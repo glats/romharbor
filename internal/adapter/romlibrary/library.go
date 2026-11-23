@@ -128,6 +128,7 @@ func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress 
 	if err := install(part, tempPath(dir, filepath.Base(target)), target, dir); err != nil {
 		return rom.InstallResult{}, err
 	}
+	discard(part)
 	return installedResult(target, false)
 }
 
@@ -201,7 +202,11 @@ func (l *Library) fetch(ctx context.Context, file rom.File, part string, progres
 // honors it, and returns the digests of the whole file.
 func (l *Library) fetchFrom(ctx context.Context, file rom.File, part string, offset int64, progress func(downloaded, total int64)) (*checksums, error) {
 	sums := newChecksums(file)
-	stream, err := l.fetcher.Open(ctx, file.URL, offset)
+	var opts []romfetch.OpenOption
+	if offset > 0 {
+		opts = append(opts, romfetch.WithIfRange(readValidator(part)))
+	}
+	stream, err := l.fetcher.Open(ctx, file.URL, offset, opts...)
 	if err != nil {
 		var urlErr *romfetch.URLError
 		var statusErr *romfetch.StatusError
@@ -235,6 +240,8 @@ func (l *Library) fetchFrom(ctx context.Context, file rom.File, part string, off
 	flags := os.O_WRONLY | os.O_CREATE | os.O_TRUNC
 	if stream.Partial {
 		flags = os.O_WRONLY | os.O_CREATE | os.O_APPEND
+	} else if err := writeValidator(part, stream.Validator); err != nil {
+		return nil, err
 	}
 	out, err := os.OpenFile(part, flags, 0o644)
 	if err != nil {
@@ -357,9 +364,35 @@ func partSize(path string) int64 {
 	return info.Size()
 }
 
-// discard removes a partial download.
+// discard removes a partial download and the validator stored next to it.
 func discard(part string) {
 	_ = os.Remove(part)
+	_ = os.Remove(validatorPath(part))
+}
+
+func validatorPath(part string) string { return part + ".meta" }
+
+// readValidator returns the validator the part was downloaded under, empty
+// when none was stored.
+func readValidator(part string) string {
+	data, err := os.ReadFile(validatorPath(part))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+// writeValidator stores the validator of the representation the part holds;
+// an empty validator removes any stored one.
+func writeValidator(part, validator string) error {
+	if validator == "" {
+		_ = os.Remove(validatorPath(part))
+		return nil
+	}
+	if err := os.WriteFile(validatorPath(part), []byte(validator), 0o644); err != nil {
+		return fmt.Errorf("romcatalog: store the validator of %s: %w", part, err)
+	}
+	return nil
 }
 
 // permanentStatus reports whether an HTTP status a retry cannot fix.

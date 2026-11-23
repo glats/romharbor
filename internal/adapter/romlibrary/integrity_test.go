@@ -7,10 +7,12 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -619,4 +621,137 @@ func TestInstallReportsTheWholeFileAsTheTotalWhenItResumes(t *testing.T) {
 	if lastDownloaded != int64(len(body)) || lastTotal != int64(len(body)) {
 		t.Errorf("last progress = (%d, %d), want (%d, %d)", lastDownloaded, lastTotal, len(body), len(body))
 	}
+}
+
+// breakingDownload serves body under validator but cuts the connection after
+// cut bytes while the declared length stays complete.
+func breakingDownload(body []byte, cut int, validator string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		if validator != "" {
+			w.Header().Set("ETag", validator)
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		_, _ = w.Write(body[:cut])
+	}
+}
+
+// conditionalDownload serves body with validator and honors Range only when
+// If-Range matches the validator, as net/http does.
+func conditionalDownload(requests *[]http.Header, body []byte, validator string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		*requests = append(*requests, r.Header.Clone())
+		if validator != "" {
+			w.Header().Set("ETag", validator)
+		}
+		ifRange := r.Header.Get("If-Range")
+		if r.Header.Get("Range") == "" || (ifRange != "" && ifRange != validator) {
+			_, _ = w.Write(body)
+			return
+		}
+		var start int
+		_, _ = fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-", &start)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, len(body)-1, len(body)))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(body[start:])
+	}
+}
+
+func installTwice(t *testing.T, first, second http.HandlerFunc, file rom.File) (rom.InstallResult, string, error) {
+	t.Helper()
+	var current atomic.Value
+	current.Store(first)
+	srv := serve(t, func(w http.ResponseWriter, r *http.Request) { current.Load().(http.HandlerFunc)(w, r) })
+	l, root := newLibrary(t)
+	file.URL = srv.URL
+	req := rom.InstallRequest{Platform: snesPlatform, File: file}
+	if _, err := l.Install(context.Background(), req, nil); err == nil {
+		t.Fatal("first Install() error = nil, want the cut download to fail")
+	}
+	current.Store(second)
+	res, err := l.Install(context.Background(), req, nil)
+	return res, root, err
+}
+
+// L-05: a resume is conditional on the validator the part was downloaded under.
+func TestInstallResumesWithIfRangeWhenTheFileIsUnchanged(t *testing.T) {
+	body := []byte("0123456789abcdef")
+	var requests []http.Header
+
+	res, root, err := installTwice(t,
+		breakingDownload(body, 4, `"v1"`),
+		conditionalDownload(&requests, body, `"v1"`),
+		rom.File{Name: "Game.sfc", Size: int64(len(body))})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+		t.Errorf("installed bytes = %q, want %q", got, body)
+	}
+	if len(requests) != 1 || requests[0].Get("Range") != "bytes=4-" || requests[0].Get("If-Range") != `"v1"` {
+		t.Errorf("resume request headers = %v, want Range bytes=4- and If-Range \"v1\"", requests)
+	}
+	assertAbsent(t, filepath.Join(root, "snes", "Game.sfc.part"))
+	assertAbsent(t, filepath.Join(root, "snes", "Game.sfc.part.meta"))
+}
+
+func TestInstallRestartsWhenTheFileChangedSinceThePartWasDownloaded(t *testing.T) {
+	oldBody := []byte("0123456789abcdef")
+	newBody := []byte("ABCDEFGHIJKLMNOP")
+	var requests []http.Header
+
+	res, root, err := installTwice(t,
+		breakingDownload(oldBody, 4, `"v1"`),
+		conditionalDownload(&requests, newBody, `"v2"`),
+		rom.File{Name: "Game.sfc", Size: int64(len(newBody)), SHA1: sha1Hex(newBody)})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if got := readFile(t, res.Path); !bytes.Equal(got, newBody) {
+		t.Errorf("installed bytes = %q, want the new file %q", got, newBody)
+	}
+	if len(requests) != 1 || requests[0].Get("If-Range") != `"v1"` {
+		t.Errorf("resume request headers = %v, want If-Range \"v1\"", requests)
+	}
+	assertAbsent(t, filepath.Join(root, "snes", "Game.sfc.part.meta"))
+}
+
+func TestInstallSendsNoIfRangeWhenTheServerGaveNoValidator(t *testing.T) {
+	body := []byte("0123456789abcdef")
+	var requests []http.Header
+
+	res, _, err := installTwice(t,
+		breakingDownload(body, 4, ""),
+		conditionalDownload(&requests, body, ""),
+		rom.File{Name: "Game.sfc", Size: int64(len(body))})
+	if err != nil {
+		t.Fatalf("Install() error = %v", err)
+	}
+	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+		t.Errorf("installed bytes = %q, want %q", got, body)
+	}
+	if len(requests) != 1 || requests[0].Get("Range") != "bytes=4-" || requests[0].Get("If-Range") != "" {
+		t.Errorf("resume request headers = %v, want Range bytes=4- and no If-Range", requests)
+	}
+}
+
+func TestInstallDiscardsTheValidatorWithThePart(t *testing.T) {
+	body := []byte("0123456789abcdef")
+	var requests []http.Header
+	var current atomic.Value
+	current.Store(breakingDownload(body, 4, `"v1"`))
+	srv := serve(t, func(w http.ResponseWriter, r *http.Request) { current.Load().(http.HandlerFunc)(w, r) })
+	l, root := newLibrary(t)
+	req := rom.InstallRequest{Platform: snesPlatform, File: rom.File{Name: "Game.sfc", Size: int64(len(body)), URL: srv.URL, SHA1: sha1Hex([]byte("other"))}}
+	if _, err := l.Install(context.Background(), req, nil); err == nil {
+		t.Fatal("first Install() error = nil")
+	}
+	current.Store(conditionalDownload(&requests, body, `"v1"`))
+
+	_, err := l.Install(context.Background(), req, nil)
+
+	if !errors.Is(err, rom.ErrNotRetryable) {
+		t.Fatalf("Install() error = %v, want a checksum failure marked not retryable", err)
+	}
+	assertAbsent(t, filepath.Join(root, "snes", "Game.sfc.part"))
+	assertAbsent(t, filepath.Join(root, "snes", "Game.sfc.part.meta"))
 }

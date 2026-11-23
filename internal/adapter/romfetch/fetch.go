@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -57,6 +58,24 @@ type Stream struct {
 	Length int64
 	// ContentRange is the raw Content-Range response header, empty when absent.
 	ContentRange string
+	// Validator is the response ETag when it is a strong one, else its
+	// Last-Modified, else empty. Pass it to WithIfRange to resume the same
+	// representation later.
+	Validator string
+}
+
+// OpenOption adjusts a single Open call.
+type OpenOption func(*openConfig)
+
+type openConfig struct {
+	ifRange string
+}
+
+// WithIfRange makes a ranged request conditional on validator, so the server
+// answers the whole file when the file changed. An empty validator adds no
+// header.
+func WithIfRange(validator string) OpenOption {
+	return func(c *openConfig) { c.ifRange = validator }
 }
 
 // Fetcher opens download streams through a Doer under a fixed policy: only
@@ -110,7 +129,11 @@ func parseURL(raw string) (*url.URL, error) {
 // Open requests rawURL from offset onward. A positive offset sends a Range
 // header; Stream.Partial tells whether the server honored it. The caller must
 // close Stream.Body.
-func (f *Fetcher) Open(ctx context.Context, rawURL string, offset int64) (*Stream, error) {
+func (f *Fetcher) Open(ctx context.Context, rawURL string, offset int64, opts ...OpenOption) (*Stream, error) {
+	var cfg openConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 	u, err := parseURL(rawURL)
 	if err != nil {
 		return nil, err
@@ -126,6 +149,9 @@ func (f *Fetcher) Open(ctx context.Context, rawURL string, offset int64) (*Strea
 	req.Header.Set("User-Agent", userAgent)
 	if offset > 0 {
 		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", offset))
+		if cfg.ifRange != "" {
+			req.Header.Set("If-Range", cfg.ifRange)
+		}
 	}
 	resp, err := f.doer.Do(req)
 	idle.stop()
@@ -156,7 +182,15 @@ func (f *Fetcher) Open(ctx context.Context, rawURL string, offset int64) (*Strea
 		Partial:      partial,
 		Length:       resp.ContentLength,
 		ContentRange: resp.Header.Get("Content-Range"),
+		Validator:    validator(resp.Header),
 	}, nil
+}
+
+func validator(h http.Header) string {
+	if etag := h.Get("ETag"); etag != "" && !strings.HasPrefix(etag, "W/") {
+		return etag
+	}
+	return h.Get("Last-Modified")
 }
 
 type idleTimer struct {
