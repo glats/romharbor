@@ -47,24 +47,34 @@ func extractROM(ctx context.Context, limits extractLimits, archiveExt, archivePa
 	if err := ctx.Err(); err != nil {
 		return "", "", err
 	}
-	switch strings.ToLower(archiveExt) {
-	case ".zip":
-		return extractZipROM(ctx, limits, archivePath, workDir, exts)
-	case ".7z":
-		return extract7zROM(ctx, limits, archivePath, workDir, exts)
+	entries, closeArchive, err := openArchive(limits, archiveExt, archivePath)
+	if err != nil {
+		return "", "", err
 	}
-	return "", "", notRetryable(fmt.Errorf("romcatalog: unsupported archive format %q", archiveExt))
+	defer closeArchive()
+	return extractEntry(ctx, limits, entries, workDir, exts)
 }
 
-func extractZipROM(ctx context.Context, limits extractLimits, archivePath, workDir string, exts []string) (string, string, error) {
+// openArchive opens an archive and returns the regular files it holds. The
+// returned function closes the archive.
+func openArchive(limits extractLimits, archiveExt, archivePath string) ([]archiveEntry, func(), error) {
+	switch strings.ToLower(archiveExt) {
+	case ".zip":
+		return openZip(limits, archivePath)
+	case ".7z":
+		return open7z(limits, archivePath)
+	}
+	return nil, func() {}, notRetryable(fmt.Errorf("romcatalog: unsupported archive format %q", archiveExt))
+}
+
+func openZip(limits extractLimits, archivePath string) ([]archiveEntry, func(), error) {
 	r, err := zip.OpenReader(archivePath)
 	if err != nil {
-		return "", "", fmt.Errorf("romcatalog: open zip archive: %w", err)
+		return nil, nil, fmt.Errorf("romcatalog: open zip archive: %w", err)
 	}
-	defer func() { _ = r.Close() }()
-
 	if err := checkEntryCount(len(r.File), limits); err != nil {
-		return "", "", err
+		_ = r.Close()
+		return nil, nil, err
 	}
 	var entries []archiveEntry
 	for _, f := range r.File {
@@ -72,18 +82,17 @@ func extractZipROM(ctx context.Context, limits extractLimits, archivePath, workD
 			entries = append(entries, archiveEntry{name: f.Name, size: f.UncompressedSize64, open: f.Open})
 		}
 	}
-	return extractEntry(ctx, limits, entries, workDir, exts)
+	return entries, func() { _ = r.Close() }, nil
 }
 
-func extract7zROM(ctx context.Context, limits extractLimits, archivePath, workDir string, exts []string) (string, string, error) {
+func open7z(limits extractLimits, archivePath string) ([]archiveEntry, func(), error) {
 	r, err := sevenzip.OpenReader(archivePath)
 	if err != nil {
-		return "", "", fmt.Errorf("romcatalog: open 7z archive: %w", err)
+		return nil, nil, fmt.Errorf("romcatalog: open 7z archive: %w", err)
 	}
-	defer func() { _ = r.Close() }()
-
 	if err := checkEntryCount(len(r.File), limits); err != nil {
-		return "", "", err
+		_ = r.Close()
+		return nil, nil, err
 	}
 	var entries []archiveEntry
 	for _, f := range r.File {
@@ -91,7 +100,7 @@ func extract7zROM(ctx context.Context, limits extractLimits, archivePath, workDi
 			entries = append(entries, archiveEntry{name: f.Name, size: f.UncompressedSize, open: f.Open})
 		}
 	}
-	return extractEntry(ctx, limits, entries, workDir, exts)
+	return entries, func() { _ = r.Close() }, nil
 }
 
 func checkEntryCount(n int, limits extractLimits) error {
@@ -116,25 +125,25 @@ func extractEntry(ctx context.Context, limits extractLimits, entries []archiveEn
 	}
 	ext := path.Ext(entry.name)
 	romPath := filepath.Join(workDir, "rom"+ext)
-	if err := writeEntry(ctx, entry, romPath, limits.bytes); err != nil {
+	if _, err := writeEntry(ctx, entry, romPath, limits.bytes); err != nil {
 		_ = os.Remove(romPath)
 		return "", "", err
 	}
 	return romPath, ext, nil
 }
 
-func writeEntry(ctx context.Context, entry archiveEntry, dst string, limit int64) error {
+func writeEntry(ctx context.Context, entry archiveEntry, dst string, limit int64) (int64, error) {
 	rc, err := entry.open()
 	if err != nil {
-		return fmt.Errorf("romcatalog: open %s in archive: %w", entry.name, err)
+		return 0, fmt.Errorf("romcatalog: open %s in archive: %w", entry.name, err)
 	}
 	defer func() { _ = rc.Close() }()
 
 	out, err := os.Create(dst)
 	if err != nil {
-		return fmt.Errorf("romcatalog: create %s: %w", dst, err)
+		return 0, fmt.Errorf("romcatalog: create %s: %w", dst, err)
 	}
-	_, copyErr := copyCapped(ctx, out, rc, limit)
+	written, copyErr := copyCapped(ctx, out, rc, limit)
 	if copyErr == nil {
 		copyErr = out.Sync()
 	}
@@ -142,9 +151,9 @@ func writeEntry(ctx context.Context, entry archiveEntry, dst string, limit int64
 		copyErr = closeErr
 	}
 	if copyErr != nil {
-		return fmt.Errorf("romcatalog: extract %s: %w", entry.name, copyErr)
+		return written, fmt.Errorf("romcatalog: extract %s: %w", entry.name, copyErr)
 	}
-	return nil
+	return written, nil
 }
 
 // copyCapped copies src to dst in chunks, checking ctx between chunks and

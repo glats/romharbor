@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -140,7 +142,22 @@ func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, arc
 	}
 	defer func() { _ = os.RemoveAll(workDir) }()
 
-	romPath, romExt, err := extractROM(ctx, l.limits, archiveExt, archivePath, workDir, exts)
+	if err := ctx.Err(); err != nil {
+		return rom.InstallResult{}, err
+	}
+	entries, closeArchive, err := openArchive(l.limits, archiveExt, archivePath)
+	if err != nil {
+		if errors.Is(err, rom.ErrNotRetryable) {
+			discard(archivePath)
+		}
+		return rom.InstallResult{}, err
+	}
+	defer closeArchive()
+
+	if index, ok := findIndex(entries, exts); ok {
+		return l.installSet(ctx, dir, base, index, entries, workDir, archivePath)
+	}
+	romPath, romExt, err := extractEntry(ctx, l.limits, entries, workDir, exts)
 	if err != nil {
 		if errors.Is(err, rom.ErrNotRetryable) {
 			discard(archivePath)
@@ -156,6 +173,49 @@ func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, arc
 	}
 	discard(archivePath)
 	return installedResult(target, true)
+}
+
+// installSet installs the index of a set and every piece it references into one
+// folder of the library.
+func (l *Library) installSet(ctx context.Context, dir, base string, index archiveEntry, entries []archiveEntry, workDir, archivePath string) (rom.InstallResult, error) {
+	folder, err := l.targetPath(dir, base, "")
+	if err != nil {
+		return rom.InstallResult{}, err
+	}
+	switch info, statErr := os.Stat(folder); {
+	case statErr == nil && info.IsDir():
+		if setPresent(folder, path.Base(index.name)) {
+			discard(archivePath)
+			return installedSetResult(folder, true, true)
+		}
+		discard(archivePath)
+		return rom.InstallResult{}, notRetryable(fmt.Errorf("romcatalog: %s already holds a folder that is not a set", folder))
+	case statErr == nil:
+		discard(archivePath)
+		return rom.InstallResult{}, notRetryable(fmt.Errorf("romcatalog: %s already holds a file", folder))
+	case !os.IsNotExist(statErr):
+		discard(archivePath)
+		return rom.InstallResult{}, fmt.Errorf("romcatalog: stat %s: %w", folder, statErr)
+	}
+	pieces, err := resolveSet(entries, index)
+	if err != nil {
+		if errors.Is(err, rom.ErrNotRetryable) {
+			discard(archivePath)
+		}
+		return rom.InstallResult{}, err
+	}
+	staged := filepath.Join(workDir, base)
+	if err := writeSet(ctx, l.limits, pieces, staged); err != nil {
+		if errors.Is(err, rom.ErrNotRetryable) {
+			discard(archivePath)
+		}
+		return rom.InstallResult{}, err
+	}
+	if err := install(staged, tempPath(dir, base), folder, dir); err != nil {
+		return rom.InstallResult{}, err
+	}
+	discard(archivePath)
+	return installedSetResult(folder, false, true)
 }
 
 func (l *Library) targetPath(dir, base, ext string) (string, error) {
@@ -185,6 +245,44 @@ func installedResult(path string, extracted bool) (rom.InstallResult, error) {
 		return rom.InstallResult{}, fmt.Errorf("romcatalog: stat installed ROM: %w", err)
 	}
 	return rom.InstallResult{Path: path, Size: info.Size(), Extracted: extracted}, nil
+}
+
+// installedSetResult reports the folder that holds a set and the bytes it holds.
+func installedSetResult(folder string, skipped, extracted bool) (rom.InstallResult, error) {
+	size, err := folderSize(folder)
+	if err != nil {
+		return rom.InstallResult{}, fmt.Errorf("romcatalog: measure %s: %w", folder, err)
+	}
+	return rom.InstallResult{Path: folder, Size: size, Skipped: skipped, Extracted: extracted}, nil
+}
+
+// setPresent reports whether the folder already holds the index of the set.
+func setPresent(folder, index string) bool {
+	info, err := os.Stat(filepath.Join(folder, index))
+	return err == nil && info.Mode().IsRegular()
+}
+
+// folderSize returns the bytes the files of a folder hold.
+func folderSize(folder string) (int64, error) {
+	var total int64
+	err := filepath.WalkDir(folder, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		total += info.Size()
+		return nil
+	})
+	if err != nil {
+		return 0, err
+	}
+	return total, nil
 }
 
 // fetch downloads the file into part and returns the digests of the whole
