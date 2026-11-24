@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -85,7 +86,7 @@ func TestARestartResumesAPartialFileWithARangeRequest(t *testing.T) {
 	require.NoError(t, second.Resume(context.Background()))
 
 	done := waitForJob(t, reopened, job.ID, status(rom.JobDone))
-	installed, err := os.ReadFile(done.Path)
+	installed, err := os.ReadFile(filepath.Join(library.Root, filepath.FromSlash(done.Path)))
 	require.NoError(t, err)
 	got := sha256.Sum256(installed)
 	assert.Equal(t, hex.EncodeToString(sum[:]), hex.EncodeToString(got[:]))

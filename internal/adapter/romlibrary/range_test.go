@@ -48,7 +48,7 @@ func TestInstallRejectsAnImpossibleContentRange(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Install() error = %v", err)
 			}
-			if got := readFile(t, res.Path); string(got) != "abcdef" {
+			if got := readFile(t, l.abs(res.Path)); string(got) != "abcdef" {
 				t.Errorf("installed bytes = %q, want the whole file %q", got, "abcdef")
 			}
 			assertAbsent(t, filepath.Join(dir, "Game.sfc.part"))
@@ -82,7 +82,7 @@ func TestInstallAcceptsAContentRangeWithoutATotal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); string(got) != "abcdef" {
+	if got := readFile(t, l.abs(res.Path)); string(got) != "abcdef" {
 		t.Errorf("installed bytes = %q, want %q", got, "abcdef")
 	}
 }

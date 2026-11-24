@@ -20,8 +20,6 @@ type fakeLibrary struct {
 	install  func(ctx context.Context, req rom.InstallRequest, progress func(int64, int64)) (rom.InstallResult, error)
 }
 
-func (f *fakeLibrary) PlatformDir(p rom.Platform) (string, error) { return "/unused/" + p.Slug, nil }
-
 func (f *fakeLibrary) Install(ctx context.Context, req rom.InstallRequest, progress func(int64, int64)) (rom.InstallResult, error) {
 	f.mu.Lock()
 	f.installs = append(f.installs, req.Game.ID)

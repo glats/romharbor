@@ -264,7 +264,7 @@ func TestInstallDiscardsAPartWhenTheContentRangeDoesNotStartAtTheOffset(t *testi
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 }
@@ -292,7 +292,7 @@ func TestInstallDiscardsAPartWhenTheContentRangeTotalDoesNotMatchTheSize(t *test
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 }
@@ -313,7 +313,7 @@ func TestInstallTreatsARangeNotSatisfiableOverACompletePartAsTheWholeFile(t *tes
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 	assertAbsent(t, filepath.Join(root, "snes", "Game.sfc.part"))
@@ -354,10 +354,10 @@ func TestInstallKeepsAnArcadeArchiveAsTheROM(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	want := filepath.Join(root, "arcade", "pacman.zip")
-	if res.Path != want || res.Extracted {
+	if l.abs(res.Path) != want || res.Extracted {
 		t.Errorf("result = %+v, want the archive installed as the ROM at %s", res, want)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, archive) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, archive) {
 		t.Errorf("installed bytes = %q, want the archive itself", got)
 	}
 	if files := installedFiles(t, root); len(files) != 1 || files[0] != want {
@@ -537,10 +537,10 @@ func TestInstallDoesNotReadTheFinishedDownloadAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v, want the checksum computed while streaming", err)
 	}
-	if err := os.Chmod(res.Path, 0o644); err != nil {
+	if err := os.Chmod(l.abs(res.Path), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 }
@@ -567,7 +567,7 @@ func TestInstallVerifiesTheChecksumAcrossAResumedPart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 }
@@ -684,7 +684,7 @@ func TestInstallResumesWithIfRangeWhenTheFileIsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, (&Library{Root: root}).abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 	if len(requests) != 1 || requests[0].Get("Range") != "bytes=4-" || requests[0].Get("If-Range") != `"v1"` {
@@ -706,7 +706,7 @@ func TestInstallRestartsWhenTheFileChangedSinceThePartWasDownloaded(t *testing.T
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, newBody) {
+	if got := readFile(t, (&Library{Root: root}).abs(res.Path)); !bytes.Equal(got, newBody) {
 		t.Errorf("installed bytes = %q, want the new file %q", got, newBody)
 	}
 	if len(requests) != 1 || requests[0].Get("If-Range") != `"v1"` {
@@ -719,14 +719,14 @@ func TestInstallSendsNoIfRangeWhenTheServerGaveNoValidator(t *testing.T) {
 	body := []byte("0123456789abcdef")
 	var requests []http.Header
 
-	res, _, err := installTwice(t,
+	res, root, err := installTwice(t,
 		breakingDownload(body, 4, ""),
 		conditionalDownload(&requests, body, ""),
 		rom.File{Name: "Game.sfc", Size: int64(len(body))})
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, (&Library{Root: root}).abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 	if len(requests) != 1 || requests[0].Get("Range") != "bytes=4-" || requests[0].Get("If-Range") != "" {

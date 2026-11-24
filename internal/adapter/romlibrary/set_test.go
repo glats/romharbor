@@ -43,8 +43,8 @@ func TestInstallExtractsACueSetIntoOneFolder(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	folder := filepath.Join(root, "psx", "Game")
-	if res.Path != folder {
-		t.Errorf("Path = %q, want the folder %q", res.Path, folder)
+	if res.Path != "psx/Game" {
+		t.Errorf("Path = %q, want the folder relative to the library root", res.Path)
 	}
 	if !res.Extracted {
 		t.Errorf("result = %+v, want the set marked as extracted", res)
@@ -79,7 +79,7 @@ func TestInstallExtractsAGDISetIntoOneFolder(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	folder := filepath.Join(root, "dc", "Game")
-	if res.Path != folder {
+	if l.abs(res.Path) != folder {
 		t.Errorf("Path = %q, want the folder %q", res.Path, folder)
 	}
 	if got := readFile(t, filepath.Join(folder, "Game.gdi")); string(got) != gdi {
@@ -116,7 +116,7 @@ func TestInstallExtractsAnM3UPlaylistIntoOneFolder(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	folder := filepath.Join(root, "psx", "Game")
-	if res.Path != folder {
+	if l.abs(res.Path) != folder {
 		t.Errorf("Path = %q, want the folder %q", res.Path, folder)
 	}
 	for name, want := range map[string]string{
@@ -230,7 +230,7 @@ func TestInstallKeepsTwoPiecesThatShareAName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	folder := res.Path
+	folder := l.abs(res.Path)
 	for name, want := range map[string]string{
 		filepath.Join("a", "Game.bin"): "one",
 		filepath.Join("b", "Game.bin"): "two",
@@ -256,7 +256,7 @@ func TestInstallKeepsTheArchiveLayoutOfTheSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	folder := res.Path
+	folder := l.abs(res.Path)
 	if got := readFile(t, filepath.Join(folder, "Game.cue")); string(got) != "FILE \"tracks/one.bin\" BINARY\n" {
 		t.Errorf("installed index = %q, want the untouched index text", got)
 	}
@@ -281,7 +281,7 @@ func TestInstallResolvesNestedIndexesInTheirOwnFolder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	folder := res.Path
+	folder := l.abs(res.Path)
 	for name, want := range map[string]string{
 		"Game.m3u":                      "disc1/a.cue\n",
 		filepath.Join("disc1", "a.cue"): "FILE \"a.bin\" BINARY\n",
@@ -308,7 +308,7 @@ func TestInstallWritesAPieceThatTwoIndexesReferenceOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	folder := res.Path
+	folder := l.abs(res.Path)
 	if got := readFile(t, filepath.Join(folder, "Game.bin")); string(got) != "disc-image" {
 		t.Errorf("installed piece = %q, want %q", got, "disc-image")
 	}
@@ -334,7 +334,7 @@ func TestInstallKeepsTheSingleROMBehaviorWhenThePlatformDoesNotAcceptTheIndex(t 
 		t.Fatalf("Install() error = %v", err)
 	}
 	want := filepath.Join(root, "megadrive", "Game.bin")
-	if res.Path != want || !res.Extracted {
+	if l.abs(res.Path) != want || !res.Extracted {
 		t.Errorf("result = %+v, want the single ROM at %s", res, want)
 	}
 	if got := readFile(t, want); string(got) != "disc-image" {
@@ -461,7 +461,7 @@ func TestInstallSkipsASetWhoseFolderAlreadyHoldsTheIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if !res.Skipped || res.Path != folder {
+	if !res.Skipped || l.abs(res.Path) != folder {
 		t.Errorf("result = %+v, want the set skipped at %s", res, folder)
 	}
 	if got := readFile(t, filepath.Join(folder, "Game.cue")); string(got) != "old-index" {

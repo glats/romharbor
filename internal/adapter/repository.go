@@ -42,7 +42,6 @@ type RomListingCache interface {
 }
 
 type RomLibrary interface {
-	PlatformDir(p rom.Platform) (string, error)
 	Install(ctx context.Context, req rom.InstallRequest, progress func(downloaded, total int64)) (rom.InstallResult, error)
 }
 

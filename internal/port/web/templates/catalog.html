@@ -76,7 +76,7 @@ code { background:#0c0e13; padding:.1rem .35rem; border-radius:4px; }
 {{if .Platform}}
 <h1>{{.Platform.Name}}</h1>
 <p class="sub">{{.Platform.Slug}} &middot; cores: {{join .Platform.Cores ", "}} &middot; {{.Total}} results</p>
-<p class="destination">Downloads are installed in <code>{{.Destination}}</code></p>
+<p class="destination">Downloads are installed in the <code>{{.Destination}}</code> library folder</p>
 <form method="get" action="/platform/{{.Platform.Slug}}">
   <input type="search" name="q" value="{{.Query}}" placeholder="Search in {{.Platform.Name}}">
   <button type="submit">Search</button>
@@ -91,7 +91,7 @@ code { background:#0c0e13; padding:.1rem .35rem; border-radius:4px; }
   <div>
     <h1>{{.Game.Title}}</h1>
     <p class="sub">{{.Game.Platform}}{{if .Game.Region}} &middot; {{.Game.Region}}{{end}}{{if .Game.Size}} &middot; {{size .Game.Size}}{{end}} &middot; source: {{.Game.Source}}</p>
-    <p class="destination">Installed in <code>{{.Destination}}</code></p>
+    <p class="destination">Installed in the <code>{{.Destination}}</code> library folder</p>
     <table class="files">
       {{range .Game.Files}}<tr><td><code>{{.Name}}</code></td><td>{{if .Size}}{{size .Size}}{{end}}</td><td>{{if .MD5}}md5 {{.MD5}}{{end}}</td></tr>{{end}}
     </table>

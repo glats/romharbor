@@ -1,6 +1,7 @@
 package rom
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -90,5 +91,15 @@ func TestPickROMPrefersArchiveRoot(t *testing.T) {
 	}
 	if _, ok := PickROM([]string{"notes.txt"}, []string{".sfc"}); ok {
 		t.Error("PickROM() found a ROM in an archive without one")
+	}
+}
+
+func TestPlatformDestinationIsItsLibraryFolderOrAnError(t *testing.T) {
+	genesis, _ := PlatformBySlug("genesis")
+	if got, err := genesis.Destination(); err != nil || got != "megadrive" {
+		t.Errorf("Destination() = (%q, %v), want megadrive", got, err)
+	}
+	if _, err := (Platform{}).Destination(); !errors.Is(err, ErrNoLibraryFolder) {
+		t.Errorf("Destination() of a platform without a folder error = %v, want ErrNoLibraryFolder", err)
 	}
 }

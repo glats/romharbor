@@ -47,7 +47,7 @@ func TestVerifierSetInputs(t *testing.T) {
 				t.Fatal(e)
 			}
 			for _, entry := range entries {
-				got, e := os.ReadFile(filepath.Join(r.Path, entry.name))
+				got, e := os.ReadFile(filepath.Join(l.abs(r.Path), entry.name))
 				if e != nil || string(got) != entry.body {
 					t.Fatalf("%s %q %v", entry.name, got, e)
 				}

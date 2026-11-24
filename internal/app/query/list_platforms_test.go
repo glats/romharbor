@@ -38,7 +38,6 @@ func TestCatalogQueriesReportDecoratorMetrics(t *testing.T) {
 	ctx := context.Background()
 	listings := newListings(rom.Game{ID: "1", Platform: "snes", Title: "Zelda"})
 	jobs := fakeJobs{jobs: []rom.Job{{ID: "1"}}}
-	library := fakeLibrary{}
 	snes, _ := rom.PlatformBySlug("snes")
 	metrics := &recordingMetrics{}
 
@@ -68,7 +67,7 @@ func TestCatalogQueriesReportDecoratorMetrics(t *testing.T) {
 			return err
 		},
 		"querys.obtaindestination.success": func() error {
-			_, err := NewObtainDestinationHandler(library, metrics).Handle(ctx, ObtainDestination{Platform: snes})
+			_, err := NewObtainDestinationHandler(metrics).Handle(ctx, ObtainDestination{Platform: snes})
 			return err
 		},
 	}

@@ -37,10 +37,6 @@ type blockingLibrary struct {
 	started chan struct{}
 }
 
-func (b *blockingLibrary) PlatformDir(p rom.Platform) (string, error) {
-	return "/library/" + p.Slug, nil
-}
-
 func (b *blockingLibrary) Install(ctx context.Context, _ rom.InstallRequest, _ func(int64, int64)) (rom.InstallResult, error) {
 	select {
 	case b.started <- struct{}{}:

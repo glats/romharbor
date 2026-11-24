@@ -24,7 +24,7 @@ func TestVerifierArchiveContracts(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			got, _ := os.ReadFile(r.Path)
+			got, _ := os.ReadFile(l.abs(r.Path))
 			if tc.want == "rom" && string(got) != "rom" || tc.want == "archive" && string(got) != string(a) {
 				t.Fatal("wrong bytes")
 			}

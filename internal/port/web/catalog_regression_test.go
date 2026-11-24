@@ -80,11 +80,9 @@ func (f *failingWriter) Write([]byte) (int, error) { return 0, errors.New("sink 
 
 type instantLibrary struct{}
 
-func (instantLibrary) PlatformDir(p rom.Platform) (string, error) { return "/unused/" + p.Slug, nil }
-
 func (instantLibrary) Install(_ context.Context, _ rom.InstallRequest, progress func(int64, int64)) (rom.InstallResult, error) {
 	progress(42, 42)
-	return rom.InstallResult{Path: "/unused/Instant.sfc", Size: 42}, nil
+	return rom.InstallResult{Path: "snes/Instant.sfc", Size: 42}, nil
 }
 
 func TestAcceptedDownloadReturnsTheQueuedSnapshotWhenTheWorkerFinishesFirst(t *testing.T) {

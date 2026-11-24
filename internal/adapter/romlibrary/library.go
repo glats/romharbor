@@ -38,15 +38,22 @@ type Library struct {
 	HTTPClient  romfetch.Doer
 }
 
-func (l *Library) PlatformDir(p rom.Platform) (string, error) {
-	name := p.LibraryFolder()
-	if name == "" {
-		return "", errors.New("romcatalog: platform has no library folder")
+// Install downloads the file into the library and reports where it landed as a
+// slash-separated path relative to the library root.
+func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress func(downloaded, total int64)) (rom.InstallResult, error) {
+	result, err := l.install(ctx, req, progress)
+	if err != nil {
+		return result, err
 	}
-	return filepath.Join(l.Root, name), nil
+	relative, err := filepath.Rel(filepath.Clean(l.Root), result.Path)
+	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return rom.InstallResult{}, notRetryable(fmt.Errorf("romcatalog: installed path %q is outside the library root %q", result.Path, l.Root))
+	}
+	result.Path = filepath.ToSlash(relative)
+	return result, nil
 }
 
-func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress func(downloaded, total int64)) (rom.InstallResult, error) {
+func (l *Library) install(ctx context.Context, req rom.InstallRequest, progress func(downloaded, total int64)) (rom.InstallResult, error) {
 	l.installOnce.Do(func() {
 		l.installGate = make(chan struct{}, 1)
 		l.fetcher = romfetch.New(l.HTTPClient)
@@ -88,10 +95,11 @@ func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress 
 		}
 		ext = req.Platform.Extensions[0]
 	}
-	dir, err := l.PlatformDir(req.Platform)
+	folder, err := req.Platform.Destination()
 	if err != nil {
 		return rom.InstallResult{}, err
 	}
+	dir := filepath.Join(l.Root, folder)
 	target, err := l.targetPath(dir, base, ext)
 	if err != nil {
 		return rom.InstallResult{}, err

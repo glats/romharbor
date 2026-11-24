@@ -38,7 +38,6 @@ type independentLibrary struct {
 	block   bool
 }
 
-func (*independentLibrary) PlatformDir(rom.Platform) (string, error) { return "/synthetic", nil }
 func (l *independentLibrary) Install(ctx context.Context, _ rom.InstallRequest, p func(int64, int64)) (rom.InstallResult, error) {
 	p(3, 15)
 	if l.entered != nil {

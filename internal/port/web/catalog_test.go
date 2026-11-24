@@ -172,7 +172,7 @@ func TestCatalogPlatformPageShowsLibraryFolder(t *testing.T) {
 	for _, route := range []string{"/platform/genesis", "/game/" + encodeGameID(game.ID)} {
 		rec := do(t, handler, http.MethodGet, route)
 		require.Equal(t, http.StatusOK, rec.Code, route)
-		assert.Contains(t, rec.Body.String(), "<code>"+filepath.Join(root, "megadrive")+"</code>", route)
+		assert.Contains(t, rec.Body.String(), "<code>megadrive</code>", route)
 		assert.Contains(t, rec.Body.String(), game.Title, route)
 	}
 }
@@ -231,7 +231,7 @@ func TestCatalogDownloadInstallsVerifiedROM(t *testing.T) {
 
 	job := waitForJob(t, handler, "1", "done")
 	want := filepath.Join(root, "snes", "Game.sfc")
-	assert.Equal(t, want, job["path"])
+	assert.Equal(t, "snes/Game.sfc", job["path"])
 	got, err := os.ReadFile(want)
 	require.NoError(t, err)
 	assert.Equal(t, body, got)

@@ -70,7 +70,7 @@ func TestConcurrentInstallsProtectStagingAndCancelWaiters(t *testing.T) {
 	if got := string(readFile(t, filepath.Join(root, "snes", "Game.sfc"))); got != "verified ROM" {
 		t.Errorf("installed bytes = %q", got)
 	}
-	assertAbsent(t, result.Path+".part")
+	assertAbsent(t, l.abs(result.Path)+".part")
 }
 
 type zipEntry struct {
@@ -166,8 +166,8 @@ func TestInstallWritesPlainROM(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	want := filepath.Join(root, "snes", "Chrono Trigger (USA).sfc")
-	if res.Path != want {
-		t.Errorf("Path = %q, want %q", res.Path, want)
+	if res.Path != "snes/Chrono Trigger (USA).sfc" {
+		t.Errorf("Path = %q, want the path relative to the library root", res.Path)
 	}
 	if res.Size != int64(len(body)) || res.Skipped || res.Extracted {
 		t.Errorf("result = %+v, want size %d, not skipped, not extracted", res, len(body))
@@ -221,7 +221,7 @@ func TestInstallResumesPartFile(t *testing.T) {
 	default:
 		t.Fatal("server was not contacted")
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("resumed bytes = %q, want %q", got, body)
 	}
 	assertAbsent(t, filepath.Join(dir, "Game.sfc.part"))
@@ -255,7 +255,7 @@ func TestInstallChecksum(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Install() error = %v", err)
 				}
-				if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+				if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 					t.Errorf("installed bytes = %q, want %q", got, body)
 				}
 				return
@@ -286,11 +286,11 @@ func TestInstallNeutralizesTraversal(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	want := filepath.Join(root, "snes", "passwd.sfc")
-	if res.Path != want {
+	if l.abs(res.Path) != want {
 		t.Errorf("Path = %q, want %q", res.Path, want)
 	}
-	if !strings.HasPrefix(res.Path, root+string(filepath.Separator)) {
-		t.Errorf("Path %q escapes library root %q", res.Path, root)
+	if !strings.HasPrefix(l.abs(res.Path), root+string(filepath.Separator)) {
+		t.Errorf("Path %q escapes library root %q", l.abs(res.Path), root)
 	}
 	if got := readFile(t, want); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
@@ -321,7 +321,7 @@ func TestInstallSkipsPresentROM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if !res.Skipped || res.Path != target {
+	if !res.Skipped || res.Path != "snes/Game.sfc" || l.abs(res.Path) != target {
 		t.Errorf("result = %+v, want skipped at %s", res, target)
 	}
 	if n := hits.Load(); n != 0 {
@@ -349,7 +349,7 @@ func TestInstallExtractsZipROM(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	want := filepath.Join(root, "snes", "Bundle.sfc")
-	if res.Path != want || !res.Extracted {
+	if l.abs(res.Path) != want || !res.Extracted {
 		t.Errorf("result = %+v, want extracted ROM at %s", res, want)
 	}
 	if got := readFile(t, want); string(got) != "game-data" {
@@ -374,7 +374,7 @@ func TestInstallExtractsSevenZipROM(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	want := filepath.Join(root, "snes", "Bundle.gba")
-	if res.Path != want || !res.Extracted {
+	if l.abs(res.Path) != want || !res.Extracted {
 		t.Errorf("result = %+v, want extracted ROM at %s", res, want)
 	}
 	if got := readFile(t, want); string(got) != "synthetic-rom" {
@@ -459,7 +459,7 @@ func TestInstallGenesisUsesMegadriveFolder(t *testing.T) {
 		t.Fatalf("Install() error = %v", err)
 	}
 	want := filepath.Join(root, "megadrive", "Sonic.md")
-	if res.Path != want {
+	if l.abs(res.Path) != want {
 		t.Errorf("Path = %q, want %q", res.Path, want)
 	}
 	if got := readFile(t, want); !bytes.Equal(got, body) {
@@ -508,7 +508,7 @@ func TestInstallUsesTheDefaultFetcherWhenNoClientIsSet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if got := readFile(t, res.Path); !bytes.Equal(got, body) {
+	if got := readFile(t, l.abs(res.Path)); !bytes.Equal(got, body) {
 		t.Errorf("installed bytes = %q, want %q", got, body)
 	}
 }

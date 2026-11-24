@@ -27,7 +27,7 @@ func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings,
 			ObtainGame:          query.NewObtainGameHandler(listings, metrics),
 			ListJobs:            query.NewListJobsHandler(jobs, metrics),
 			ObtainJob:           query.NewObtainJobHandler(jobs, metrics),
-			ObtainDestination:   query.NewObtainDestinationHandler(library, metrics),
+			ObtainDestination:   query.NewObtainDestinationHandler(metrics),
 		},
 	}
 }

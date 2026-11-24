@@ -53,7 +53,7 @@ func TestVerifierResume(t *testing.T) {
 			if mode == "changed" {
 				want = "uvwxyz"
 			}
-			b, _ := os.ReadFile(r.Path)
+			b, _ := os.ReadFile(l.abs(r.Path))
 			if string(b) != want {
 				t.Fatalf("%q want %q", b, want)
 			}

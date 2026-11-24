@@ -20,12 +20,12 @@ func TestVerifierNestedSet(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	b, e := os.ReadFile(filepath.Join(r.Path, "Game.cue"))
+	b, e := os.ReadFile(filepath.Join(l.abs(r.Path), "Game.cue"))
 	if e != nil {
 		t.Fatal(e)
 	}
 	ref := strings.Split(string(b), "\"")[1]
-	if _, e = os.Stat(filepath.Join(r.Path, ref)); e != nil {
+	if _, e = os.Stat(filepath.Join(l.abs(r.Path), ref)); e != nil {
 		t.Fatalf("installed index references absent piece %q: %v", ref, e)
 	}
 }
@@ -73,7 +73,7 @@ func TestVerifierMalformedRange(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	b, _ := os.ReadFile(r.Path)
+	b, _ := os.ReadFile(l.abs(r.Path))
 	if string(b) != "abcdef" {
 		t.Fatalf("malformed Content-Range accepted: %q", b)
 	}

@@ -32,6 +32,16 @@ func (p Platform) LibraryFolder() string {
 	return p.Slug
 }
 
+// Destination returns the folder, relative to the library root, that receives
+// the downloads of the platform.
+func (p Platform) Destination() (string, error) {
+	folder := p.LibraryFolder()
+	if folder == "" {
+		return "", ErrNoLibraryFolder
+	}
+	return folder, nil
+}
+
 // CoverURL returns the libretro thumbnail URL for a game title, empty when
 // the platform has no thumbnail collection.
 func (p Platform) CoverURL(title string) string {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestIndependentRequestCancellationInstall(t *testing.T) {
 	for {
 		job := getJob(t, jobs, "1")
 		if job.Status == "done" {
-			b, err := os.ReadFile(job.Path)
+			b, err := os.ReadFile(filepath.Join(library.Root, filepath.FromSlash(job.Path)))
 			if err != nil || sha256.Sum256(b) != sha256.Sum256(payload) {
 				t.Fatal("installed payload mismatch", err)
 			}

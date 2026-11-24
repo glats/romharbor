@@ -2,7 +2,6 @@ package query
 
 import (
 	"context"
-	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -12,30 +11,15 @@ import (
 	"app.ddd/internal/domain/rom"
 )
 
-type fakeLibrary struct {
-	err error
-}
-
-func (f fakeLibrary) PlatformDir(p rom.Platform) (string, error) {
-	if f.err != nil {
-		return "", f.err
-	}
-	return "/library/" + p.Slug, nil
-}
-
-func (fakeLibrary) Install(context.Context, rom.InstallRequest, func(int64, int64)) (rom.InstallResult, error) {
-	return rom.InstallResult{}, errors.New("unused")
-}
-
-func TestObtainDestinationReturnsThePlatformFolderOrTheLibraryError(t *testing.T) {
-	snes, _ := rom.PlatformBySlug("snes")
+func TestObtainDestinationReturnsTheLibraryFolderOfThePlatform(t *testing.T) {
 	ctx := context.Background()
+	handler := NewObtainDestinationHandler(metric.NoOp{})
 
-	dir, err := NewObtainDestinationHandler(fakeLibrary{}, metric.NoOp{}).Handle(ctx, ObtainDestination{Platform: snes})
+	genesis, _ := rom.PlatformBySlug("genesis")
+	folder, err := handler.Handle(ctx, ObtainDestination{Platform: genesis})
 	require.NoError(t, err)
-	assert.Equal(t, "/library/snes", dir)
+	assert.Equal(t, "megadrive", folder)
 
-	boom := errors.New("library unavailable")
-	_, err = NewObtainDestinationHandler(fakeLibrary{err: boom}, metric.NoOp{}).Handle(ctx, ObtainDestination{Platform: snes})
-	assert.ErrorIs(t, err, boom)
+	_, err = handler.Handle(ctx, ObtainDestination{})
+	assert.ErrorIs(t, err, rom.ErrNoLibraryFolder)
 }

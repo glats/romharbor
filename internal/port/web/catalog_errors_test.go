@@ -68,11 +68,7 @@ func (j brokenJobs) Get(context.Context, string) (rom.Job, bool, error) {
 
 func (j brokenJobs) List(context.Context) ([]rom.Job, error) { return nil, j.listErr }
 
-type brokenLibrary struct {
-	dirErr error
-}
-
-func (l brokenLibrary) PlatformDir(rom.Platform) (string, error) { return "", l.dirErr }
+type brokenLibrary struct{}
 
 func (l brokenLibrary) Install(context.Context, rom.InstallRequest, func(int64, int64)) (rom.InstallResult, error) {
 	return rom.InstallResult{}, errors.New("install not supported")
@@ -112,10 +108,8 @@ func TestCatalogRoutesHideTheCauseOfAnInternalFailureAndLogIt(t *testing.T) {
 	}{
 		{name: "api platforms", target: "/api/platforms", listings: &brokenListings{countsErr: cause}, wantStatus: http.StatusInternalServerError, jsonBody: true},
 		{name: "platform listings", target: "/platform/snes", listings: &brokenListings{gamesErr: cause}, wantStatus: http.StatusBadGateway},
-		{name: "platform destination", target: "/platform/snes", listings: &brokenListings{}, library: brokenLibrary{dirErr: cause}, wantStatus: http.StatusInternalServerError},
 		{name: "platform jobs", target: "/platform/snes", listings: &brokenListings{}, jobs: brokenJobs{listErr: cause}, wantStatus: http.StatusInternalServerError},
 		{name: "game lookup", target: gameRoute, listings: &brokenListings{gameErr: cause}, wantStatus: http.StatusInternalServerError},
-		{name: "game destination", target: gameRoute, listings: withGame, library: brokenLibrary{dirErr: cause}, wantStatus: http.StatusInternalServerError},
 		{name: "game jobs", target: gameRoute, listings: withGame, jobs: brokenJobs{listErr: cause}, wantStatus: http.StatusInternalServerError},
 		{name: "api games", target: "/api/games", listings: &brokenListings{gamesErr: cause}, wantStatus: http.StatusBadGateway, jsonBody: true},
 		{name: "api game", target: "/api/game?id=" + game.ID, listings: &brokenListings{gameErr: cause}, wantStatus: http.StatusInternalServerError, jsonBody: true},
@@ -264,4 +258,15 @@ func TestCatalogHomeDoesNotCountPlatformListings(t *testing.T) {
 	handler, _ := newBrokenCatalogHandler(t, &brokenListings{countsErr: errors.New("counting would fetch every source")}, brokenJobs{}, brokenLibrary{}, brokenDownloads{})
 
 	require.Equal(t, http.StatusOK, do(t, handler, http.MethodGet, "/").Code)
+}
+
+func TestCatalogGameOfAnUnknownPlatformFailsWithoutExposingTheCause(t *testing.T) {
+	game := rom.Game{ID: "fixture:one", Platform: "nowhere", Title: "One"}
+	handler, logs := newBrokenCatalogHandler(t, &brokenListings{games: []rom.Game{game}}, brokenJobs{}, brokenLibrary{}, brokenDownloads{})
+
+	rec := do(t, handler, http.MethodGet, "/game/"+encodeGameID(game.ID))
+
+	assert.Equal(t, http.StatusInternalServerError, rec.Code)
+	assert.NotContains(t, rec.Body.String(), rom.ErrNoLibraryFolder.Error())
+	assert.Contains(t, logs.String(), rom.ErrNoLibraryFolder.Error())
 }
