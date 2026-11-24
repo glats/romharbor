@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/sqlite"
 	"app.ddd/internal/domain/rom"
 )
@@ -55,12 +54,17 @@ func openStore(t *testing.T) (*sqlite.JobStore, string) {
 	return sqlite.NewJobStore(db), path
 }
 
-func newTestDownloads(t *testing.T, library *fakeLibrary, queue adapter.RomJobQueue) *Downloads {
+func storePorts(store *sqlite.JobStore) JobPorts {
+	return JobPorts{Producer: store, Worker: store, Maintenance: store}
+}
+
+func newTestDownloads(t *testing.T, library *fakeLibrary, jobs JobPorts, options ...Option) *Downloads {
 	t.Helper()
-	downloads := NewDownloads(library, queue, nil)
-	downloads.Poll = 10 * time.Millisecond
-	downloads.ProgressEvery = 10 * time.Millisecond
-	downloads.Backoff = func(int) time.Duration { return 20 * time.Millisecond }
+	policy := DefaultPolicy()
+	policy.Poll = 10 * time.Millisecond
+	policy.ProgressEvery = 10 * time.Millisecond
+	policy.Backoff = func(int) time.Duration { return 20 * time.Millisecond }
+	downloads := NewDownloads(library, jobs, policy, options...)
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 	return downloads
 }

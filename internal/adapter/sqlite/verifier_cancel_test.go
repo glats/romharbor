@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"app.ddd/internal/adapter"
 	"app.ddd/internal/domain/rom"
 )
 
@@ -36,7 +37,9 @@ func TestVerifierCancelled(t *testing.T) {
 
 func TestVerifierMissingLease(t *testing.T) {
 	s, _, _ := newJobStore(t)
-	for _, e := range []error{s.Heartbeat(context.Background(), "999", 0, 0, 0), s.Complete(context.Background(), "999", rom.InstallResult{}), s.Retry(context.Background(), "999", errors.New("x"), time.Now()), s.Release(context.Background(), "999"), s.Fail(context.Background(), "999", errors.New("x"))} {
+	lease := adapter.RomJobLease{JobID: "999", Until: time.Now()}
+	_, beat := s.Heartbeat(context.Background(), lease, 0, 0, 0)
+	for _, e := range []error{beat, s.Complete(context.Background(), lease, rom.InstallResult{}), s.Retry(context.Background(), lease, errors.New("x"), time.Now()), s.Release(context.Background(), lease), s.Fail(context.Background(), lease, errors.New("x"))} {
 		if !errors.Is(e, rom.ErrLeaseLost) {
 			t.Fatal(e)
 		}

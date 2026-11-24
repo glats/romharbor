@@ -70,7 +70,11 @@ func newDownloadFixture(t *testing.T, games ...rom.Game) downloadFixture {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	jobs := sqlite.NewJobStore(db)
-	downloads := romdownloads.NewDownloads(library, jobs, nil)
+	downloads := romdownloads.NewDownloads(library, romdownloads.JobPorts{
+		Producer:    jobs,
+		Worker:      jobs,
+		Maintenance: jobs,
+	}, romdownloads.DefaultPolicy())
 	require.NoError(t, downloads.Resume(context.Background()))
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 	return downloadFixture{

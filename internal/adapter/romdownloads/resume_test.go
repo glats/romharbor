@@ -65,7 +65,7 @@ func TestARestartResumesAPartialFileWithARangeRequest(t *testing.T) {
 
 	library := &romlibrary.Library{Root: t.TempDir(), HTTPClient: upstream.Client()}
 	store, path := openStore(t)
-	first := newTestDownloads(t, &fakeLibrary{install: library.Install}, store)
+	first := newTestDownloads(t, &fakeLibrary{install: library.Install}, storePorts(store))
 	require.NoError(t, first.Resume(context.Background()))
 	job, err := first.Start(context.Background(), request)
 	require.NoError(t, err)
@@ -82,7 +82,7 @@ func TestARestartResumesAPartialFileWithARangeRequest(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	reopened := sqlite.NewJobStore(db)
-	second := newTestDownloads(t, &fakeLibrary{install: library.Install}, reopened)
+	second := newTestDownloads(t, &fakeLibrary{install: library.Install}, storePorts(reopened))
 	require.NoError(t, second.Resume(context.Background()))
 
 	done := waitForJob(t, reopened, job.ID, status(rom.JobDone))

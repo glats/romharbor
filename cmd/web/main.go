@@ -117,7 +117,11 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	library := &romlibrary.Library{Root: cfg.ROM.Library}
 	jobs := sqlite.NewJobStore(db)
 	listings := romlistings.NewListings(sources, cache, cfg.ROM.CacheTTL)
-	downloads := romdownloads.NewDownloads(library, jobs, nil)
+	downloads := romdownloads.NewDownloads(library, romdownloads.JobPorts{
+		Producer:    jobs,
+		Worker:      jobs,
+		Maintenance: jobs,
+	}, romdownloads.DefaultPolicy())
 	if err := downloads.Resume(ctx); err != nil {
 		return err
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/sqlite"
 	"app.ddd/internal/domain/rom"
 )
@@ -28,18 +29,18 @@ type fakeQueue struct {
 	releases     int
 }
 
-func (q *fakeQueue) Heartbeat(ctx context.Context, id string, downloaded, total int64, lease time.Duration) error {
+func (q *fakeQueue) Heartbeat(ctx context.Context, lease adapter.RomJobLease, downloaded, total int64, duration time.Duration) (adapter.RomJobLease, error) {
 	q.mu.Lock()
 	q.heartbeats++
 	err := q.heartbeatErr
 	q.mu.Unlock()
 	if err != nil {
-		return err
+		return adapter.RomJobLease{}, err
 	}
-	return q.JobStore.Heartbeat(ctx, id, downloaded, total, lease)
+	return q.JobStore.Heartbeat(ctx, lease, downloaded, total, duration)
 }
 
-func (q *fakeQueue) Complete(ctx context.Context, id string, result rom.InstallResult) error {
+func (q *fakeQueue) Complete(ctx context.Context, lease adapter.RomJobLease, result rom.InstallResult) error {
 	q.mu.Lock()
 	q.completes++
 	err := q.completeErr
@@ -47,28 +48,32 @@ func (q *fakeQueue) Complete(ctx context.Context, id string, result rom.InstallR
 	if err != nil {
 		return err
 	}
-	return q.JobStore.Complete(ctx, id, result)
+	return q.JobStore.Complete(ctx, lease, result)
 }
 
-func (q *fakeQueue) Retry(ctx context.Context, id string, cause error, runAt time.Time) error {
+func (q *fakeQueue) Retry(ctx context.Context, lease adapter.RomJobLease, cause error, runAt time.Time) error {
 	q.mu.Lock()
 	q.retries++
 	q.mu.Unlock()
-	return q.JobStore.Retry(ctx, id, cause, runAt)
+	return q.JobStore.Retry(ctx, lease, cause, runAt)
 }
 
-func (q *fakeQueue) Fail(ctx context.Context, id string, cause error) error {
+func (q *fakeQueue) Fail(ctx context.Context, lease adapter.RomJobLease, cause error) error {
 	q.mu.Lock()
 	q.fails++
 	q.mu.Unlock()
-	return q.JobStore.Fail(ctx, id, cause)
+	return q.JobStore.Fail(ctx, lease, cause)
 }
 
-func (q *fakeQueue) Release(ctx context.Context, id string) error {
+func (q *fakeQueue) Release(ctx context.Context, lease adapter.RomJobLease) error {
 	q.mu.Lock()
 	q.releases++
 	q.mu.Unlock()
-	return q.JobStore.Release(ctx, id)
+	return q.JobStore.Release(ctx, lease)
+}
+
+func fakePorts(queue *fakeQueue) JobPorts {
+	return JobPorts{Producer: queue, Worker: queue, Maintenance: queue}
 }
 
 func (q *fakeQueue) counts() (heartbeats, completes, retries, fails, releases int) {
@@ -121,8 +126,7 @@ func TestALostLeaseCancelsTheInstallAndSkipsTheOutcome(t *testing.T) {
 		close(cancelled)
 		return rom.InstallResult{}, ctx.Err()
 	}}
-	downloads := newTestDownloads(t, library, queue)
-	downloads.logger = logs.logger()
+	downloads := newTestDownloads(t, library, fakePorts(queue), WithLogger(logs.logger()))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -155,8 +159,7 @@ func TestALostLeaseOnCompleteIsLoggedAndStopsTheWrites(t *testing.T) {
 	store, _ := openStore(t)
 	queue := &fakeQueue{JobStore: store, completeErr: fmt.Errorf("update job 1: %w", rom.ErrLeaseLost)}
 	logs := &logCapture{}
-	downloads := newTestDownloads(t, &fakeLibrary{install: succeeds}, queue)
-	downloads.logger = logs.logger()
+	downloads := newTestDownloads(t, &fakeLibrary{install: succeeds}, fakePorts(queue), WithLogger(logs.logger()))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -186,7 +189,7 @@ func TestANotRetryableFailureFailsTheJobOnTheFirstAttempt(t *testing.T) {
 	library := &fakeLibrary{install: func(context.Context, rom.InstallRequest, func(int64, int64)) (rom.InstallResult, error) {
 		return rom.InstallResult{}, fmt.Errorf("checksum mismatch: %w", rom.ErrNotRetryable)
 	}}
-	downloads := newTestDownloads(t, library, queue)
+	downloads := newTestDownloads(t, library, fakePorts(queue))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -215,8 +218,7 @@ func TestAFailedHeartbeatKeepsTheInstallRunning(t *testing.T) {
 		}
 		return succeeds(ctx, req, p)
 	}}
-	downloads := newTestDownloads(t, library, queue)
-	downloads.logger = logs.logger()
+	downloads := newTestDownloads(t, library, fakePorts(queue), WithLogger(logs.logger()))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))

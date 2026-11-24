@@ -24,8 +24,10 @@ type JobStore struct {
 }
 
 var (
-	_ adapter.RomJobStore = (*JobStore)(nil)
-	_ adapter.RomJobQueue = (*JobStore)(nil)
+	_ adapter.RomJobStore       = (*JobStore)(nil)
+	_ adapter.RomJobProducer    = (*JobStore)(nil)
+	_ adapter.RomJobWorker      = (*JobStore)(nil)
+	_ adapter.RomJobMaintenance = (*JobStore)(nil)
 )
 
 func NewJobStore(db bob.Executor) *JobStore {
@@ -82,9 +84,10 @@ func (s *JobStore) Enqueue(ctx context.Context, req rom.InstallRequest) (rom.Job
 	return rom.Job{}, errors.New("enqueue job: the active job kept changing")
 }
 
-func (s *JobStore) Claim(ctx context.Context, lease time.Duration) (rom.JobClaim, bool, error) {
+func (s *JobStore) Claim(ctx context.Context, lease time.Duration) (adapter.RomJobClaim, bool, error) {
 	for {
 		now := s.Now()
+		until := now.Add(lease).UnixMilli()
 		var (
 			id       int64
 			request  string
@@ -97,27 +100,34 @@ func (s *JobStore) Claim(ctx context.Context, lease time.Duration) (rom.JobClaim
 			     SELECT id FROM jobs WHERE status = 'queued' AND run_at <= ? ORDER BY run_at, id LIMIT 1
 			 )
 			 RETURNING id, request, attempts`,
-			now.Add(lease).UnixMilli(), now.UnixMilli(),
+			until, now.UnixMilli(),
 		)
 		if errors.Is(err, sql.ErrNoRows) {
-			return rom.JobClaim{}, false, nil
+			return adapter.RomJobClaim{}, false, nil
 		}
 		if err != nil {
-			return rom.JobClaim{}, false, fmt.Errorf("claim job: %w", err)
+			return adapter.RomJobClaim{}, false, fmt.Errorf("claim job: %w", err)
 		}
 
 		job, err := s.mustGet(ctx, id)
 		if err != nil {
-			return rom.JobClaim{}, false, err
+			return adapter.RomJobClaim{}, false, err
 		}
 		install, err := decodeRequest(request)
 		if err != nil {
-			if failErr := s.Fail(ctx, job.ID, err); failErr != nil {
-				return rom.JobClaim{}, false, failErr
+			claim := adapter.RomJobClaim{
+				JobClaim: rom.JobClaim{Job: job, Request: install, Attempt: attempts},
+				Lease:    adapter.RomJobLease{JobID: job.ID, Until: time.UnixMilli(until)},
+			}
+			if failErr := s.Fail(ctx, claim.Lease, err); failErr != nil {
+				return adapter.RomJobClaim{}, false, failErr
 			}
 			continue
 		}
-		return rom.JobClaim{Job: job, Request: install, Attempt: attempts}, true, nil
+		return adapter.RomJobClaim{
+			JobClaim: rom.JobClaim{Job: job, Request: install, Attempt: attempts},
+			Lease:    adapter.RomJobLease{JobID: job.ID, Until: time.UnixMilli(until)},
+		}, true, nil
 	}
 }
 
@@ -151,38 +161,43 @@ func decodeRequest(payload string) (rom.InstallRequest, error) {
 	return rom.InstallRequest{Game: stored.Game, File: stored.File, Platform: platform}, nil
 }
 
-func (s *JobStore) Heartbeat(ctx context.Context, id string, downloaded, total int64, lease time.Duration) error {
-	return s.updateRunning(ctx, id,
+func (s *JobStore) Heartbeat(ctx context.Context, lease adapter.RomJobLease, downloaded, total int64, duration time.Duration) (adapter.RomJobLease, error) {
+	until := s.Now().Add(duration).UnixMilli()
+	err := s.updateLeased(ctx, lease,
 		`UPDATE jobs SET downloaded = ?, total = CASE WHEN ? > 0 THEN ? ELSE total END, lease_until = ?
-		 WHERE id = ? AND status = 'running'`,
-		downloaded, total, total, s.Now().Add(lease).UnixMilli())
+		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
+		downloaded, total, total, until)
+	if err != nil {
+		return adapter.RomJobLease{}, err
+	}
+	return adapter.RomJobLease{JobID: lease.JobID, Until: time.UnixMilli(until)}, nil
 }
 
-func (s *JobStore) Complete(ctx context.Context, id string, result rom.InstallResult) error {
-	return s.updateRunning(ctx, id,
+func (s *JobStore) Complete(ctx context.Context, lease adapter.RomJobLease, result rom.InstallResult) error {
+	return s.updateLeased(ctx, lease,
 		`UPDATE jobs SET status = 'done', path = ?, total = ?, error = '', lease_until = 0, finished = ?
-		 WHERE id = ? AND status = 'running'`,
+		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
 		result.Path, result.Size, s.Now().UnixNano())
 }
 
-func (s *JobStore) Retry(ctx context.Context, id string, cause error, runAt time.Time) error {
-	return s.updateRunning(ctx, id,
+func (s *JobStore) Retry(ctx context.Context, lease adapter.RomJobLease, cause error, runAt time.Time) error {
+	return s.updateLeased(ctx, lease,
 		`UPDATE jobs SET status = 'queued', error = ?, run_at = ?, lease_until = 0
-		 WHERE id = ? AND status = 'running'`,
+		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
 		cause.Error(), runAt.UnixMilli())
 }
 
-func (s *JobStore) Fail(ctx context.Context, id string, cause error) error {
-	return s.updateRunning(ctx, id,
+func (s *JobStore) Fail(ctx context.Context, lease adapter.RomJobLease, cause error) error {
+	return s.updateLeased(ctx, lease,
 		`UPDATE jobs SET status = 'failed', error = ?, lease_until = 0, finished = ?
-		 WHERE id = ? AND status IN ('queued', 'running')`,
+		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
 		cause.Error(), s.Now().UnixNano())
 }
 
-func (s *JobStore) Release(ctx context.Context, id string) error {
-	return s.updateRunning(ctx, id,
+func (s *JobStore) Release(ctx context.Context, lease adapter.RomJobLease) error {
+	return s.updateLeased(ctx, lease,
 		`UPDATE jobs SET status = 'queued', attempts = MAX(attempts - 1, 0), run_at = ?, lease_until = 0
-		 WHERE id = ? AND status = 'running'`,
+		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
 		s.Now().UnixMilli())
 }
 
@@ -238,18 +253,19 @@ func (s *JobStore) mustGet(ctx context.Context, id int64) (rom.Job, error) {
 	return job, nil
 }
 
-func (s *JobStore) updateRunning(ctx context.Context, id, statement string, args ...any) error {
-	number, err := strconv.ParseInt(id, 10, 64)
+func (s *JobStore) updateLeased(ctx context.Context, lease adapter.RomJobLease, statement string, args ...any) error {
+	number, err := strconv.ParseInt(lease.JobID, 10, 64)
 	if err != nil {
-		return fmt.Errorf("update job %s: %w", id, rom.ErrJobNotFound)
+		return fmt.Errorf("update job %s: %w", lease.JobID, rom.ErrJobNotFound)
 	}
-	res, err := s.db.ExecContext(ctx, statement, append(args, number)...)
-	rows, err := affected(res, err, fmt.Sprintf("update job %s", id))
+	where := []any{number, lease.Until.UnixMilli(), s.Now().UnixMilli()}
+	res, err := s.db.ExecContext(ctx, statement, append(args[:len(args):len(args)], where...)...)
+	rows, err := affected(res, err, fmt.Sprintf("update job %s", lease.JobID))
 	if err != nil {
 		return err
 	}
 	if rows == 0 {
-		return fmt.Errorf("update job %s: %w", id, rom.ErrLeaseLost)
+		return fmt.Errorf("update job %s: %w", lease.JobID, rom.ErrLeaseLost)
 	}
 	return nil
 }

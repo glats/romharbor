@@ -27,9 +27,14 @@ func newJobs(t *testing.T) *sqlite.JobStore {
 
 func newDownloads(t *testing.T, library adapter.RomLibrary, jobs *sqlite.JobStore, logger *slog.Logger) *romdownloads.Downloads {
 	t.Helper()
-	downloads := romdownloads.NewDownloads(library, jobs, logger)
-	downloads.Poll = 5 * time.Millisecond
-	downloads.Backoff = func(int) time.Duration { return time.Millisecond }
+	policy := romdownloads.DefaultPolicy()
+	policy.Poll = 5 * time.Millisecond
+	policy.Backoff = func(int) time.Duration { return time.Millisecond }
+	downloads := romdownloads.NewDownloads(library, romdownloads.JobPorts{
+		Producer:    jobs,
+		Worker:      jobs,
+		Maintenance: jobs,
+	}, policy, romdownloads.WithLogger(logger))
 	require.NoError(t, downloads.Resume(context.Background()))
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 	return downloads

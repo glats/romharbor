@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"reflect"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -16,9 +18,30 @@ import (
 )
 
 var (
-	_ adapter.RomJobStore = (*JobStore)(nil)
-	_ adapter.RomJobQueue = (*JobStore)(nil)
+	_ adapter.RomJobStore       = (*JobStore)(nil)
+	_ adapter.RomJobProducer    = (*JobStore)(nil)
+	_ adapter.RomJobWorker      = (*JobStore)(nil)
+	_ adapter.RomJobMaintenance = (*JobStore)(nil)
 )
+
+func TestTheJobQueuePortsAreSplitByBehavior(t *testing.T) {
+	producer := reflect.TypeFor[adapter.RomJobProducer]()
+	worker := reflect.TypeFor[adapter.RomJobWorker]()
+	maintenance := reflect.TypeFor[adapter.RomJobMaintenance]()
+
+	assert.Equal(t, []string{"Enqueue"}, portMethods(producer))
+	assert.Equal(t, []string{"Claim", "Complete", "Fail", "Heartbeat", "Release", "Retry"}, portMethods(worker))
+	assert.Equal(t, []string{"Prune", "Recover"}, portMethods(maintenance))
+}
+
+func portMethods(port reflect.Type) []string {
+	methods := make([]string, 0, port.NumMethod())
+	for i := range port.NumMethod() {
+		methods = append(methods, port.Method(i).Name)
+	}
+	sort.Strings(methods)
+	return methods
+}
 
 type clock struct {
 	mu  sync.Mutex
@@ -93,7 +116,7 @@ func TestEnqueueReturnsTheActiveJobOfTheSameGame(t *testing.T) {
 	assert.Equal(t, claim.Job.ID, running.ID)
 	assert.Equal(t, rom.JobRunning, running.Status)
 
-	require.NoError(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/lib/a.nes", Size: 10}))
+	require.NoError(t, store.Complete(ctx, claim.Lease, rom.InstallResult{Path: "/lib/a.nes", Size: 10}))
 	next := mustEnqueue(t, store, "a")
 	assert.NotEqual(t, first.ID, next.ID)
 	assert.Equal(t, rom.JobQueued, next.Status)
@@ -128,7 +151,7 @@ func TestClaimSkipsJobsScheduledInTheFuture(t *testing.T) {
 	mustEnqueue(t, store, "a")
 	claim, _, err := store.Claim(ctx, time.Minute)
 	require.NoError(t, err)
-	require.NoError(t, store.Retry(ctx, claim.Job.ID, errors.New("boom"), clk.Now().Add(time.Minute)))
+	require.NoError(t, store.Retry(ctx, claim.Lease, errors.New("boom"), clk.Now().Add(time.Minute)))
 
 	_, ok, err := store.Claim(ctx, time.Minute)
 	require.NoError(t, err)
@@ -181,7 +204,8 @@ func TestHeartbeatRecordsProgressAndRenewsTheLease(t *testing.T) {
 	require.NoError(t, err)
 
 	clk.Advance(8 * time.Second)
-	require.NoError(t, store.Heartbeat(ctx, claim.Job.ID, 400, 0, 10*time.Second))
+	lease, err := store.Heartbeat(ctx, claim.Lease, 400, 0, 10*time.Second)
+	require.NoError(t, err)
 	clk.Advance(8 * time.Second)
 
 	recovered, err := store.Recover(ctx)
@@ -192,7 +216,8 @@ func TestHeartbeatRecordsProgressAndRenewsTheLease(t *testing.T) {
 	assert.EqualValues(t, 400, got.Downloaded)
 	assert.EqualValues(t, 1000, got.Total, "a zero total keeps the known size")
 
-	require.NoError(t, store.Heartbeat(ctx, claim.Job.ID, 600, 2000, 10*time.Second))
+	_, err = store.Heartbeat(ctx, lease, 600, 2000, 10*time.Second)
+	require.NoError(t, err)
 	got, _, _ = store.Get(ctx, claim.Job.ID)
 	assert.EqualValues(t, 2000, got.Total)
 }
@@ -203,39 +228,39 @@ func TestOutcomesCloseTheJob(t *testing.T) {
 	for _, id := range []string{"done", "failed", "retry", "release"} {
 		mustEnqueue(t, store, id)
 	}
-	claims := map[string]string{}
+	claims := map[string]adapter.RomJobClaim{}
 	for range 4 {
 		claim, ok, err := store.Claim(ctx, time.Minute)
 		require.NoError(t, err)
 		require.True(t, ok)
-		claims[claim.Job.GameID] = claim.Job.ID
+		claims[claim.Job.GameID] = claim
 	}
 	clk.Advance(time.Second)
 
-	require.NoError(t, store.Complete(ctx, claims["done"], rom.InstallResult{Path: "/lib/done.nes", Size: 4096}))
-	require.NoError(t, store.Fail(ctx, claims["failed"], errors.New("checksum mismatch")))
-	require.NoError(t, store.Retry(ctx, claims["retry"], errors.New("timeout"), clk.Now().Add(time.Hour)))
-	require.NoError(t, store.Release(ctx, claims["release"]))
+	require.NoError(t, store.Complete(ctx, claims["done"].Lease, rom.InstallResult{Path: "/lib/done.nes", Size: 4096}))
+	require.NoError(t, store.Fail(ctx, claims["failed"].Lease, errors.New("checksum mismatch")))
+	require.NoError(t, store.Retry(ctx, claims["retry"].Lease, errors.New("timeout"), clk.Now().Add(time.Hour)))
+	require.NoError(t, store.Release(ctx, claims["release"].Lease))
 
-	done, _, _ := store.Get(ctx, claims["done"])
+	done, _, _ := store.Get(ctx, claims["done"].Job.ID)
 	assert.Equal(t, rom.JobDone, done.Status)
 	assert.Equal(t, "/lib/done.nes", done.Path)
 	assert.EqualValues(t, 4096, done.Total)
 	assert.Equal(t, clk.Now(), done.Finished)
-	failed, _, _ := store.Get(ctx, claims["failed"])
+	failed, _, _ := store.Get(ctx, claims["failed"].Job.ID)
 	assert.Equal(t, rom.JobFailed, failed.Status)
 	assert.Equal(t, "checksum mismatch", failed.Error)
 	assert.Equal(t, clk.Now(), failed.Finished)
-	retry, _, _ := store.Get(ctx, claims["retry"])
+	retry, _, _ := store.Get(ctx, claims["retry"].Job.ID)
 	assert.Equal(t, rom.JobQueued, retry.Status)
 	assert.Equal(t, "timeout", retry.Error)
-	released, _, _ := store.Get(ctx, claims["release"])
+	released, _, _ := store.Get(ctx, claims["release"].Job.ID)
 	assert.Equal(t, rom.JobQueued, released.Status)
 
 	again, ok, err := store.Claim(ctx, time.Minute)
 	require.NoError(t, err)
 	require.True(t, ok, "the released job is immediately claimable")
-	assert.Equal(t, claims["release"], again.Job.ID)
+	assert.Equal(t, claims["release"].Job.ID, again.Job.ID)
 	assert.Equal(t, 1, again.Attempt, "a release does not count as an attempt")
 }
 
@@ -244,13 +269,14 @@ func TestFinishedJobsRejectLateUpdatesWithALostLease(t *testing.T) {
 	ctx := context.Background()
 	mustEnqueue(t, store, "a")
 	claim, _, _ := store.Claim(ctx, time.Minute)
-	require.NoError(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/lib/a.nes", Size: 10}))
+	require.NoError(t, store.Complete(ctx, claim.Lease, rom.InstallResult{Path: "/lib/a.nes", Size: 10}))
 
-	assert.ErrorIs(t, store.Heartbeat(ctx, claim.Job.ID, 1, 1, time.Minute), rom.ErrLeaseLost)
-	assert.ErrorIs(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/lib/b.nes", Size: 20}), rom.ErrLeaseLost)
-	assert.ErrorIs(t, store.Retry(ctx, claim.Job.ID, errors.New("late"), time.Now()), rom.ErrLeaseLost)
-	assert.ErrorIs(t, store.Fail(ctx, claim.Job.ID, errors.New("late")), rom.ErrLeaseLost)
-	assert.ErrorIs(t, store.Release(ctx, claim.Job.ID), rom.ErrLeaseLost)
+	_, err := store.Heartbeat(ctx, claim.Lease, 1, 1, time.Minute)
+	assert.ErrorIs(t, err, rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Complete(ctx, claim.Lease, rom.InstallResult{Path: "/lib/b.nes", Size: 20}), rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Retry(ctx, claim.Lease, errors.New("late"), time.Now()), rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Fail(ctx, claim.Lease, errors.New("late")), rom.ErrLeaseLost)
+	assert.ErrorIs(t, store.Release(ctx, claim.Lease), rom.ErrLeaseLost)
 
 	got, _, _ := store.Get(ctx, claim.Job.ID)
 	assert.Equal(t, rom.JobDone, got.Status)
@@ -287,7 +313,8 @@ func TestJobsSurviveReopeningTheDatabase(t *testing.T) {
 	ctx := context.Background()
 	mustEnqueue(t, store, "a")
 	claim, _, _ := store.Claim(ctx, 10*time.Second)
-	require.NoError(t, store.Heartbeat(ctx, claim.Job.ID, 300, 1000, 10*time.Second))
+	_, err := store.Heartbeat(ctx, claim.Lease, 300, 1000, 10*time.Second)
+	require.NoError(t, err)
 
 	db, err := Open(t.Context(), path)
 	require.NoError(t, err)
@@ -314,17 +341,18 @@ func TestPruneDropsOldFinishedJobsOnly(t *testing.T) {
 	for _, id := range []string{"old-done", "old-failed", "recent", "queued"} {
 		mustEnqueue(t, store, id)
 	}
-	claim := func() rom.JobClaim {
+	claim := func() adapter.RomJobClaim {
 		c, ok, err := store.Claim(ctx, time.Hour)
 		require.NoError(t, err)
 		require.True(t, ok)
 		return c
 	}
-	oldDone, oldFailed, recent := claim(), claim(), claim()
-	require.NoError(t, store.Complete(ctx, oldDone.Job.ID, rom.InstallResult{Path: "/x", Size: 1}))
-	require.NoError(t, store.Fail(ctx, oldFailed.Job.ID, errors.New("x")))
+	oldDone, oldFailed := claim(), claim()
+	require.NoError(t, store.Complete(ctx, oldDone.Lease, rom.InstallResult{Path: "/x", Size: 1}))
+	require.NoError(t, store.Fail(ctx, oldFailed.Lease, errors.New("x")))
 	clk.Advance(31 * 24 * time.Hour)
-	require.NoError(t, store.Complete(ctx, recent.Job.ID, rom.InstallResult{Path: "/y", Size: 1}))
+	recent := claim()
+	require.NoError(t, store.Complete(ctx, recent.Lease, rom.InstallResult{Path: "/y", Size: 1}))
 
 	pruned, err := store.Prune(ctx, clk.Now().Add(-30*24*time.Hour))
 
@@ -356,7 +384,7 @@ func TestJobTimestampsKeepNanosecondsAndTheLocalZone(t *testing.T) {
 	claim, _, err := store.Claim(ctx, time.Minute)
 	require.NoError(t, err)
 	clk.Advance(1500 * time.Millisecond)
-	require.NoError(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/x", Size: 1}))
+	require.NoError(t, store.Complete(ctx, claim.Lease, rom.InstallResult{Path: "/x", Size: 1}))
 
 	got, _, err := store.Get(ctx, queued.ID)
 	require.NoError(t, err)

@@ -50,14 +50,38 @@ type RomJobStore interface {
 	List(ctx context.Context) ([]rom.Job, error)
 }
 
-type RomJobQueue interface {
+// RomJobLease is the proof that a worker still owns a running job: it carries
+// the deadline of the lease the worker holds, so a write from a worker whose
+// lease was recovered, expired or claimed by somebody else is rejected.
+type RomJobLease struct {
+	JobID string
+	Until time.Time
+}
+
+// RomJobClaim is a queued job a worker took ownership of, with the lease that
+// proves the ownership.
+type RomJobClaim struct {
+	rom.JobClaim
+	Lease RomJobLease
+}
+
+// RomJobProducer enqueues the download jobs.
+type RomJobProducer interface {
 	Enqueue(ctx context.Context, req rom.InstallRequest) (rom.Job, error)
-	Claim(ctx context.Context, lease time.Duration) (rom.JobClaim, bool, error)
-	Heartbeat(ctx context.Context, id string, downloaded, total int64, lease time.Duration) error
-	Complete(ctx context.Context, id string, result rom.InstallResult) error
-	Retry(ctx context.Context, id string, cause error, runAt time.Time) error
-	Fail(ctx context.Context, id string, cause error) error
-	Release(ctx context.Context, id string) error
+}
+
+// RomJobWorker works on the jobs it claims and records their outcome.
+type RomJobWorker interface {
+	Claim(ctx context.Context, lease time.Duration) (RomJobClaim, bool, error)
+	Heartbeat(ctx context.Context, lease RomJobLease, downloaded, total int64, duration time.Duration) (RomJobLease, error)
+	Complete(ctx context.Context, lease RomJobLease, result rom.InstallResult) error
+	Retry(ctx context.Context, lease RomJobLease, cause error, runAt time.Time) error
+	Fail(ctx context.Context, lease RomJobLease, cause error) error
+	Release(ctx context.Context, lease RomJobLease) error
+}
+
+// RomJobMaintenance requeues the abandoned jobs and prunes the finished ones.
+type RomJobMaintenance interface {
 	Recover(ctx context.Context) (int, error)
 	Prune(ctx context.Context, finishedBefore time.Time) (int, error)
 }

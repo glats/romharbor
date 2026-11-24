@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"app.ddd/internal/adapter"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/domain/user"
 )
@@ -47,6 +48,7 @@ func TestConcurrentWritersNeverSeeADatabaseLockError(t *testing.T) {
 		other.Add(1)
 		t.Logf("unexpected error: %v", err)
 	}
+	held := adapter.RomJobLease{JobID: "1", Until: time.Now()}
 	deadline := time.Now().Add(1500 * time.Millisecond)
 	var wg sync.WaitGroup
 	run := func(workers int, work func(i int)) {
@@ -58,17 +60,17 @@ func TestConcurrentWritersNeverSeeADatabaseLockError(t *testing.T) {
 			})
 		}
 	}
-	run(4, func(i int) { check(store.Heartbeat(ctx, "1", int64(i), 100, time.Minute)) })
+	run(4, func(i int) { _, err := store.Heartbeat(ctx, held, int64(i), 100, time.Minute); check(err) })
 	run(2, func(int) {
 		claim, ok, err := store.Claim(ctx, time.Minute)
 		check(err)
 		if ok {
-			check(store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/x", Size: 1}))
+			check(store.Complete(ctx, claim.Lease, rom.InstallResult{Path: "/x", Size: 1}))
 		}
 	})
 	run(2, func(i int) { _, err := store.Enqueue(ctx, installRequest(fmt.Sprintf("n%d", i))); check(err) })
 	run(1, func(int) { _, err := store.Recover(ctx); check(err) })
-	run(1, func(int) { check(store.Retry(ctx, "2", errors.New("e"), time.Now())) })
+	run(1, func(int) { check(store.Retry(ctx, held, errors.New("e"), time.Now())) })
 	run(3, func(int) { _, err := store.List(ctx); check(err) })
 	run(3, func(int) { _, _, err := store.Get(ctx, "1"); check(err) })
 	run(2, func(i int) {

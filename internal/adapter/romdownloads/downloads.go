@@ -13,24 +13,23 @@ import (
 	"app.ddd/internal/domain/rom"
 )
 
-const (
-	downloadTimeout = 6 * time.Hour
-	persistTimeout  = 3 * time.Second
-)
+const persistTimeout = 3 * time.Second
+
+// JobPorts are the job queue ports the download runner uses.
+type JobPorts struct {
+	Producer    adapter.RomJobProducer
+	Worker      adapter.RomJobWorker
+	Maintenance adapter.RomJobMaintenance
+}
 
 type Downloads struct {
-	Workers       int
-	Lease         time.Duration
-	ProgressEvery time.Duration
-	Poll          time.Duration
-	MaxAttempts   int
-	Backoff       func(attempt int) time.Duration
-	Retention     time.Duration
-	Now           func() time.Time
-
-	library adapter.RomLibrary
-	queue   adapter.RomJobQueue
-	logger  *slog.Logger
+	policy      Policy
+	library     adapter.RomLibrary
+	producer    adapter.RomJobProducer
+	worker      adapter.RomJobWorker
+	maintenance adapter.RomJobMaintenance
+	logger      *slog.Logger
+	now         func() time.Time
 
 	lifetime context.Context
 	cancel   context.CancelFunc
@@ -43,27 +42,41 @@ type Downloads struct {
 
 var _ adapter.RomDownloads = (*Downloads)(nil)
 
-func NewDownloads(library adapter.RomLibrary, queue adapter.RomJobQueue, logger *slog.Logger) *Downloads {
-	if logger == nil {
-		logger = slog.Default()
+// Option changes how the download runner is built.
+type Option func(*Downloads)
+
+// WithClock sets the clock the runner measures the retention with.
+func WithClock(now func() time.Time) Option {
+	return func(d *Downloads) { d.now = now }
+}
+
+// WithLogger sets the logger the runner reports with.
+func WithLogger(logger *slog.Logger) Option {
+	return func(d *Downloads) {
+		if logger != nil {
+			d.logger = logger
+		}
 	}
+}
+
+func NewDownloads(library adapter.RomLibrary, jobs JobPorts, policy Policy, options ...Option) *Downloads {
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Downloads{
-		Workers:       1,
-		Lease:         30 * time.Second,
-		ProgressEvery: time.Second,
-		Poll:          5 * time.Second,
-		MaxAttempts:   3,
-		Backoff:       defaultBackoff,
-		Retention:     30 * 24 * time.Hour,
-		Now:           time.Now,
-		library:       library,
-		queue:         queue,
-		logger:        logger,
-		lifetime:      lifetime,
-		cancel:        cancel,
-		wake:          make(chan struct{}, 1),
+	d := &Downloads{
+		policy:      policy,
+		library:     library,
+		producer:    jobs.Producer,
+		worker:      jobs.Worker,
+		maintenance: jobs.Maintenance,
+		logger:      slog.Default(),
+		now:         time.Now,
+		lifetime:    lifetime,
+		cancel:      cancel,
+		wake:        make(chan struct{}, 1),
 	}
+	for _, option := range options {
+		option(d)
+	}
+	return d
 }
 
 func defaultBackoff(attempt int) time.Duration {
@@ -82,18 +95,18 @@ func (d *Downloads) Resume(ctx context.Context) error {
 	if d.resumed {
 		return nil
 	}
-	recovered, err := d.queue.Recover(ctx)
+	recovered, err := d.maintenance.Recover(ctx)
 	if err != nil {
 		return fmt.Errorf("recover interrupted downloads: %w", err)
 	}
 	if recovered > 0 {
 		d.logger.Info("interrupted downloads queued again", "jobs", recovered)
 	}
-	if _, err := d.queue.Prune(ctx, d.Now().Add(-d.Retention)); err != nil {
+	if _, err := d.maintenance.Prune(ctx, d.now().Add(-d.policy.Retention)); err != nil {
 		return fmt.Errorf("prune old downloads: %w", err)
 	}
 	d.resumed = true
-	for range max(d.Workers, 1) {
+	for range max(d.policy.Workers, 1) {
 		d.workers.Add(1)
 		go d.work()
 	}
@@ -104,7 +117,7 @@ func (d *Downloads) Start(ctx context.Context, req rom.InstallRequest) (rom.Job,
 	if d.lifetime.Err() != nil {
 		return rom.Job{}, rom.ErrShuttingDown
 	}
-	job, err := d.queue.Enqueue(ctx, req)
+	job, err := d.producer.Enqueue(ctx, req)
 	if err != nil {
 		return rom.Job{}, err
 	}
@@ -136,7 +149,7 @@ func (d *Downloads) work() {
 	defer d.workers.Done()
 	for d.lifetime.Err() == nil {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(d.lifetime), persistTimeout)
-		claim, ok, err := d.queue.Claim(ctx, d.Lease)
+		claim, ok, err := d.worker.Claim(ctx, d.policy.Lease)
 		cancel()
 		if err != nil {
 			d.logger.Error("claim download", "error", err)
@@ -155,7 +168,7 @@ func (d *Downloads) work() {
 func (d *Downloads) recover() {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(d.lifetime), persistTimeout)
 	defer cancel()
-	recovered, err := d.queue.Recover(ctx)
+	recovered, err := d.maintenance.Recover(ctx)
 	if err != nil {
 		d.logger.Error("recover downloads", "error", err)
 		return
@@ -166,7 +179,7 @@ func (d *Downloads) recover() {
 }
 
 func (d *Downloads) idle() {
-	timer := time.NewTimer(d.Poll)
+	timer := time.NewTimer(d.policy.Poll)
 	defer timer.Stop()
 	select {
 	case <-d.wake:
@@ -175,19 +188,20 @@ func (d *Downloads) idle() {
 	}
 }
 
-func (d *Downloads) run(claim rom.JobClaim) {
-	ctx, cancel := context.WithTimeout(d.lifetime, downloadTimeout)
+func (d *Downloads) run(claim adapter.RomJobClaim) {
+	ctx, cancel := context.WithTimeout(d.lifetime, d.policy.Timeout)
 	defer cancel()
 
 	var downloaded, total atomic.Int64
 	downloaded.Store(claim.Job.Downloaded)
 	total.Store(claim.Job.Total)
+	lease := &heldLease{current: claim.Lease}
 	stopBeat := make(chan struct{})
 	beatDone := make(chan struct{})
 	var lost atomic.Bool
 	go func() {
 		defer close(beatDone)
-		d.heartbeat(claim.Job.ID, &downloaded, &total, stopBeat, &lost, cancel)
+		d.heartbeat(lease, &downloaded, &total, stopBeat, &lost, cancel)
 	}()
 
 	result, err := d.library.Install(ctx, claim.Request, func(done, size int64) {
@@ -206,34 +220,37 @@ func (d *Downloads) run(claim rom.JobClaim) {
 	persist, stop := context.WithTimeout(context.WithoutCancel(d.lifetime), persistTimeout)
 	defer stop()
 	if err == nil {
-		if beatErr := d.queue.Heartbeat(persist, claim.Job.ID, downloaded.Load(), total.Load(), d.Lease); beatErr != nil {
+		renewed, beatErr := d.worker.Heartbeat(persist, lease.get(), downloaded.Load(), total.Load(), d.policy.Lease)
+		if beatErr != nil {
 			if errors.Is(beatErr, rom.ErrLeaseLost) {
 				d.logger.Warn("download lease lost", "job", claim.Job.ID, "error", beatErr)
 				return
 			}
 			d.logger.Warn("record final download progress", "job", claim.Job.ID, "error", beatErr)
+		} else {
+			lease.set(renewed)
 		}
 	}
-	d.finish(persist, claim, result, err)
+	d.finish(persist, claim, lease.get(), result, err)
 }
 
-func (d *Downloads) finish(ctx context.Context, claim rom.JobClaim, result rom.InstallResult, err error) {
+func (d *Downloads) finish(ctx context.Context, claim adapter.RomJobClaim, lease adapter.RomJobLease, result rom.InstallResult, err error) {
 	id := claim.Job.ID
 	var persistErr error
 	switch {
 	case err == nil:
-		persistErr = d.queue.Complete(ctx, id, result)
+		persistErr = d.worker.Complete(ctx, lease, result)
 	case d.lifetime.Err() != nil:
-		persistErr = d.queue.Release(ctx, id)
+		persistErr = d.worker.Release(ctx, lease)
 	case errors.Is(err, rom.ErrNotRetryable):
 		d.logger.Error("download failed permanently", "game", claim.Job.Title, "attempt", claim.Attempt, "error", err)
-		persistErr = d.queue.Fail(ctx, id, err)
-	case claim.Attempt < d.MaxAttempts:
+		persistErr = d.worker.Fail(ctx, lease, err)
+	case claim.Attempt < d.policy.MaxAttempts:
 		d.logger.Warn("download failed, retrying", "game", claim.Job.Title, "attempt", claim.Attempt, "error", err)
-		persistErr = d.queue.Retry(ctx, id, err, d.Now().Add(d.Backoff(claim.Attempt)))
+		persistErr = d.worker.Retry(ctx, lease, err, d.now().Add(d.policy.Backoff(claim.Attempt)))
 	default:
 		d.logger.Error("download failed", "game", claim.Job.Title, "attempt", claim.Attempt, "error", err)
-		persistErr = d.queue.Fail(ctx, id, err)
+		persistErr = d.worker.Fail(ctx, lease, err)
 	}
 	if persistErr != nil {
 		if errors.Is(persistErr, rom.ErrLeaseLost) {
@@ -244,8 +261,8 @@ func (d *Downloads) finish(ctx context.Context, claim rom.JobClaim, result rom.I
 	}
 }
 
-func (d *Downloads) heartbeat(id string, downloaded, total *atomic.Int64, stop <-chan struct{}, lost *atomic.Bool, cancel context.CancelFunc) {
-	ticker := time.NewTicker(d.ProgressEvery)
+func (d *Downloads) heartbeat(lease *heldLease, downloaded, total *atomic.Int64, stop <-chan struct{}, lost *atomic.Bool, cancel context.CancelFunc) {
+	ticker := time.NewTicker(d.policy.ProgressEvery)
 	defer ticker.Stop()
 	for {
 		select {
@@ -253,18 +270,37 @@ func (d *Downloads) heartbeat(id string, downloaded, total *atomic.Int64, stop <
 			return
 		case <-ticker.C:
 			ctx, stopBeat := context.WithTimeout(context.WithoutCancel(d.lifetime), persistTimeout)
-			err := d.queue.Heartbeat(ctx, id, downloaded.Load(), total.Load(), d.Lease)
+			renewed, err := d.worker.Heartbeat(ctx, lease.get(), downloaded.Load(), total.Load(), d.policy.Lease)
 			stopBeat()
 			if err == nil {
+				lease.set(renewed)
 				continue
 			}
 			if errors.Is(err, rom.ErrLeaseLost) {
 				lost.Store(true)
-				d.logger.Warn("download lease lost", "job", id, "error", err)
+				d.logger.Warn("download lease lost", "job", lease.get().JobID, "error", err)
 				cancel()
 				return
 			}
-			d.logger.Warn("record download progress", "job", id, "error", err)
+			d.logger.Warn("record download progress", "job", lease.get().JobID, "error", err)
 		}
 	}
+}
+
+// heldLease is the lease a worker currently holds: every renewal replaces it.
+type heldLease struct {
+	mu      sync.Mutex
+	current adapter.RomJobLease
+}
+
+func (l *heldLease) get() adapter.RomJobLease {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.current
+}
+
+func (l *heldLease) set(lease adapter.RomJobLease) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.current = lease
 }

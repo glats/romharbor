@@ -16,7 +16,7 @@ import (
 func TestStartQueuesAJobThatTheWorkerCompletes(t *testing.T) {
 	store, _ := openStore(t)
 	library := &fakeLibrary{install: succeeds}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -33,7 +33,7 @@ func TestStartingAnActiveGameReturnsTheSameJob(t *testing.T) {
 	store, _ := openStore(t)
 	started := make(chan struct{}, 4)
 	library := &fakeLibrary{install: blocksUntilCancelled(started)}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	first, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -57,7 +57,7 @@ func TestJobsRunOneAtATimeInQueueOrder(t *testing.T) {
 		active.Add(-1)
 		return succeeds(ctx, req, p)
 	}}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	ids := make([]string, 0, 3)
 	for _, id := range []string{"a", "b", "c"} {
 		job, err := downloads.Start(context.Background(), gameRequest(id))
@@ -82,7 +82,7 @@ func TestProgressIsPersistedWhileTheDownloadRuns(t *testing.T) {
 		<-release
 		return succeeds(ctx, req, progress)
 	}}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -103,7 +103,7 @@ func TestFailedAttemptsRetryThenSucceed(t *testing.T) {
 		}
 		return succeeds(ctx, req, p)
 	}}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -119,7 +119,7 @@ func TestTheJobFailsAfterTheLastAttempt(t *testing.T) {
 	library := &fakeLibrary{install: func(context.Context, rom.InstallRequest, func(int64, int64)) (rom.InstallResult, error) {
 		return rom.InstallResult{}, errors.New("checksum mismatch")
 	}}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(context.Background()))
 
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
@@ -134,7 +134,7 @@ func TestShutdownReleasesTheRunningJobAndRejectsNewOnes(t *testing.T) {
 	store, _ := openStore(t)
 	started := make(chan struct{}, 1)
 	library := &fakeLibrary{install: blocksUntilCancelled(started)}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(context.Background()))
 	job, err := downloads.Start(context.Background(), gameRequest("a"))
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestARestartResumesJobsLeftRunning(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 
 	library := &fakeLibrary{install: succeeds}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(ctx))
 
 	done := waitForJob(t, store, queued.ID, status(rom.JobDone))
@@ -181,10 +181,9 @@ func TestResumePrunesOldFinishedJobs(t *testing.T) {
 	require.NoError(t, err)
 	claim, _, err := store.Claim(ctx, time.Hour)
 	require.NoError(t, err)
-	require.NoError(t, store.Complete(ctx, claim.Job.ID, rom.InstallResult{Path: "/x", Size: 1}))
+	require.NoError(t, store.Complete(ctx, claim.Lease, rom.InstallResult{Path: "/x", Size: 1}))
 
-	downloads := newTestDownloads(t, &fakeLibrary{install: succeeds}, store)
-	downloads.Now = func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }
+	downloads := newTestDownloads(t, &fakeLibrary{install: succeeds}, storePorts(store), WithClock(func() time.Time { return time.Now().Add(31 * 24 * time.Hour) }))
 	require.NoError(t, downloads.Resume(ctx))
 
 	_, found, err := store.Get(ctx, old.ID)
@@ -201,7 +200,7 @@ func TestShutdownGivesUpWhenTheContextExpires(t *testing.T) {
 		<-stuck
 		return rom.InstallResult{}, errors.New("late")
 	}}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(context.Background()))
 	_, err := downloads.Start(context.Background(), gameRequest("a"))
 	require.NoError(t, err)
@@ -225,7 +224,7 @@ func TestAJobWhoseLeaseOutlivesTheRestartIsRecoveredWhenItExpires(t *testing.T) 
 	require.True(t, ok)
 
 	library := &fakeLibrary{install: succeeds}
-	downloads := newTestDownloads(t, library, store)
+	downloads := newTestDownloads(t, library, storePorts(store))
 	require.NoError(t, downloads.Resume(ctx))
 
 	done := waitForJob(t, store, orphan.ID, status(rom.JobDone))

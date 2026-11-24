@@ -78,7 +78,8 @@ func TestJobPollingReturnsTheNewStateOnceItChanges(t *testing.T) {
 	claim, ok, err := jobs.Claim(context.Background(), time.Minute)
 	require.NoError(t, err)
 	require.True(t, ok)
-	require.NoError(t, jobs.Heartbeat(context.Background(), claim.Job.ID, 40, 100, time.Minute))
+	_, err = jobs.Heartbeat(context.Background(), claim.Lease, 40, 100, time.Minute)
+	require.NoError(t, err)
 	changed := get(t, h, path, etag)
 
 	require.Equal(t, http.StatusOK, changed.Code)
