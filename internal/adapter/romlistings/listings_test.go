@@ -184,3 +184,29 @@ func TestMissingCacheEntryIsNotLogged(t *testing.T) {
 		t.Fatalf("a missing cache entry was logged: %s", logs.String())
 	}
 }
+
+type resolvingSource struct {
+	gameSource
+	game rom.Game
+}
+
+func (resolvingSource) SearchOnly() bool { return true }
+
+func (r resolvingSource) ResolveGame(id string) (rom.Game, bool) { return r.game, id == r.game.ID }
+
+func TestGameIsResolvedByItsSourceWithoutAPriorSearch(t *testing.T) {
+	game := rom.Game{ID: "found:1", Platform: "snes", Title: "Found Game"}
+	listings := NewListings([]adapter.RomSource{resolvingSource{game: game}}, &memoryCache{}, time.Hour)
+
+	got, ok, err := listings.Game(context.Background(), game.ID)
+
+	if err != nil || !ok || got.ID != game.ID {
+		t.Fatalf("Game() = %+v, %v, %v", got, ok, err)
+	}
+	if got.Cover == "" {
+		t.Errorf("Game() has no cover: %+v", got)
+	}
+	if _, ok, _ := listings.Game(context.Background(), "found:other"); ok {
+		t.Error("an ID no source resolves was found")
+	}
+}

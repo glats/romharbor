@@ -81,7 +81,7 @@ func (r *registry) queried(q rom.Query) []adapter.RomSource {
 		if !serves(s, q.Platform) {
 			continue
 		}
-		searchOnly, ok := s.(interface{ SearchOnly() bool })
+		searchOnly, ok := s.(adapter.RomSearchOnlySource)
 		if (ok && searchOnly.SearchOnly()) != (q.Text != "") {
 			continue
 		}

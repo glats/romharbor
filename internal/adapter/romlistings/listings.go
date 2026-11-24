@@ -21,9 +21,8 @@ type Listings struct {
 	ttl      time.Duration
 	logger   *slog.Logger
 
-	mu          sync.RWMutex
-	listings    map[string]rom.Listing
-	searchGames map[string]rom.Game
+	mu       sync.RWMutex
+	listings map[string]rom.Listing
 }
 
 func NewListings(sources []adapter.RomSource, cache adapter.RomListingCache, ttl time.Duration) *Listings {
@@ -32,12 +31,11 @@ func NewListings(sources []adapter.RomSource, cache adapter.RomListingCache, ttl
 	}
 	logger := slog.Default()
 	return &Listings{
-		registry:    newRegistry(sources, DefaultSourceTimeout, logger),
-		cache:       cache,
-		ttl:         ttl,
-		logger:      logger,
-		listings:    map[string]rom.Listing{},
-		searchGames: map[string]rom.Game{},
+		registry: newRegistry(sources, DefaultSourceTimeout, logger),
+		cache:    cache,
+		ttl:      ttl,
+		logger:   logger,
+		listings: map[string]rom.Listing{},
 	}
 }
 
@@ -76,14 +74,9 @@ func (l *Listings) SearchSources(ctx context.Context, text, platform string) (ro
 		return rom.GamePage{}, rom.ErrUnknownPlatform
 	}
 	found, err := l.registry.search(ctx, rom.Query{Platform: platform, Text: text})
-	l.mu.Lock()
 	for i := range found.Games {
-		if p, ok := rom.PlatformBySlug(found.Games[i].Platform); ok {
-			found.Games[i].Cover = p.CoverURL(found.Games[i].Title)
-		}
-		l.searchGames[found.Games[i].ID] = found.Games[i]
+		withCover(&found.Games[i])
 	}
-	l.mu.Unlock()
 	return found, err
 }
 
@@ -96,11 +89,13 @@ func (l *Listings) Count(ctx context.Context, platform string) (int, error) {
 }
 
 func (l *Listings) Game(ctx context.Context, id string) (rom.Game, bool, error) {
-	l.mu.RLock()
-	game, ok := l.searchGames[id]
-	l.mu.RUnlock()
-	if ok {
-		return game, true, nil
+	for _, source := range l.registry.sources {
+		if resolver, ok := source.(adapter.RomGameResolver); ok {
+			if game, found := resolver.ResolveGame(id); found {
+				withCover(&game)
+				return game, true, nil
+			}
+		}
 	}
 	for _, p := range rom.Platforms() {
 		listing, err := l.listing(ctx, p.Slug)
@@ -176,4 +171,10 @@ func (l *Listings) remember(platform string, listing rom.Listing) {
 	l.mu.Lock()
 	l.listings[platform] = listing
 	l.mu.Unlock()
+}
+
+func withCover(game *rom.Game) {
+	if p, ok := rom.PlatformBySlug(game.Platform); ok {
+		game.Cover = p.CoverURL(game.Title)
+	}
 }

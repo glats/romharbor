@@ -161,23 +161,57 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 			continue
 		}
 		seen[href] = true
-		title := rom.CleanTitle(name)
-		games = append(games, rom.Game{
-			ID:       "lolroms:" + href,
-			Source:   "lolroms",
-			Platform: slug,
-			Title:    title,
-			Region:   rom.RegionOf(title),
-			PageURL:  l.BaseURL + href,
-			Files: []rom.File{{
-				Name:    name,
-				URL:     l.BaseURL + href,
-				Archive: true,
-			}},
-		})
+		games = append(games, l.game(href, slug, name))
 	}
 	if entries > 0 && undecodable == entries {
 		return nil, fmt.Errorf("lolroms: %d of %d entries could not be decoded: %w", undecodable, entries, firstErr)
 	}
 	return rom.Page(games, q.Offset, q.Limit), nil
+}
+
+func (l *LolRoms) game(href, slug, name string) rom.Game {
+	title := rom.CleanTitle(name)
+	return rom.Game{
+		ID:       lolRomsIDPrefix + href,
+		Source:   "lolroms",
+		Platform: slug,
+		Title:    title,
+		Region:   rom.RegionOf(title),
+		PageURL:  l.BaseURL + href,
+		Files: []rom.File{{
+			Name:    name,
+			URL:     l.BaseURL + href,
+			Archive: true,
+		}},
+	}
+}
+
+const lolRomsIDPrefix = "lolroms:"
+
+// ResolveGame rebuilds a game from its ID. The ID carries the link the game
+// was found under, so no request is made; anything that is not a plain archive
+// link under a known console is refused.
+func (l *LolRoms) ResolveGame(id string) (rom.Game, bool) {
+	href, ok := strings.CutPrefix(id, lolRomsIDPrefix)
+	if !ok || !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//") ||
+		strings.ContainsAny(href, "?#\\") || !lolRomsArchive.MatchString(href) {
+		return rom.Game{}, false
+	}
+	segments := strings.Split(strings.Trim(href, "/"), "/")
+	if len(segments) < 3 {
+		return rom.Game{}, false
+	}
+	for _, segment := range segments {
+		decoded, err := url.PathUnescape(segment)
+		if err != nil || decoded == "" || decoded == "." || decoded == ".." || strings.ContainsAny(decoded, "/\\") {
+			return rom.Game{}, false
+		}
+	}
+	console, _ := url.PathUnescape(segments[len(segments)-2])
+	slug, ok := lolRomsConsolePlatform(console)
+	if !ok {
+		return rom.Game{}, false
+	}
+	name, _ := url.PathUnescape(path.Base(segments[len(segments)-1]))
+	return l.game(href, slug, name), true
 }

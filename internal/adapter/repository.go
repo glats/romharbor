@@ -23,6 +23,19 @@ type RomSource interface {
 	Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 }
 
+// RomSearchOnlySource is a source that cannot list a platform: it answers text
+// searches only, and is asked nothing else.
+type RomSearchOnlySource interface {
+	RomSource
+	SearchOnly() bool
+}
+
+// RomGameResolver is a source that can rebuild a game from its ID alone, so a
+// game found by a search stays reachable after a restart.
+type RomGameResolver interface {
+	ResolveGame(id string) (rom.Game, bool)
+}
+
 type RomListingCache interface {
 	Load(platform string) (rom.Listing, error)
 	Store(platform string, listing rom.Listing) error
