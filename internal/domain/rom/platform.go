@@ -1,6 +1,10 @@
 package rom
 
-import "strings"
+import (
+	"fmt"
+	"path"
+	"strings"
+)
 
 // Platform describes one emulated system: how RomM names it, which libretro
 // cores run it, which files count as a ROM, and how a source is asked for its
@@ -33,11 +37,15 @@ func (p Platform) LibraryFolder() string {
 }
 
 // Destination returns the folder, relative to the library root, that receives
-// the downloads of the platform.
+// the downloads of the platform. The folder must be a plain folder name: the
+// library root itself and any path that leaves it are refused.
 func (p Platform) Destination() (string, error) {
 	folder := p.LibraryFolder()
 	if folder == "" {
 		return "", ErrNoLibraryFolder
+	}
+	if !plainName(folder) {
+		return "", fmt.Errorf("romcatalog: the library folder %q is not a folder of the library: %w", folder, ErrOutsideLibrary)
 	}
 	return folder, nil
 }
@@ -56,13 +64,7 @@ func (p Platform) CoverURL(title string) string {
 
 // Accepts reports whether name looks like a ROM file for this platform.
 func (p Platform) Accepts(name string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range p.Extensions {
-		if strings.HasSuffix(lower, ext) {
-			return true
-		}
-	}
-	return false
+	return AcceptsExtension(p.Extensions, path.Ext(name))
 }
 
 // platforms is the catalog of supported systems. Dir defaults to Slug; the

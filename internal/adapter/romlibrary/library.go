@@ -76,36 +76,17 @@ func (l *Library) install(ctx context.Context, req rom.InstallRequest, progress 
 	if req.File.URL == "" {
 		return rom.InstallResult{}, fmt.Errorf("romcatalog: %s has no download URL", req.File.Name)
 	}
-	base, ext, err := rom.SplitFileName(req.File.Name)
+	plan, err := req.Platform.PlanInstall(req.File)
 	if err != nil {
 		return rom.InstallResult{}, err
 	}
-	archive := rom.ArchiveExtension(ext)
-	if req.File.Archive && !archive {
-		return rom.InstallResult{}, notRetryable(fmt.Errorf("romcatalog: unsupported archive format for %s", req.File.Name))
-	}
-	if archive && req.Platform.Accepts(ext) {
-		// The platform lists the archive extension as a ROM extension: the
-		// archive is the ROM itself and is installed without extraction.
-		archive = false
-	}
-	if !archive && ext == "" {
-		if len(req.Platform.Extensions) == 0 {
-			return rom.InstallResult{}, fmt.Errorf("romcatalog: %s has no extension to install under", req.File.Name)
-		}
-		ext = req.Platform.Extensions[0]
-	}
-	folder, err := req.Platform.Destination()
+	dir := filepath.Join(l.Root, plan.Folder)
+	target, err := l.targetPath(plan.Folder, plan.Base+plan.Ext)
 	if err != nil {
 		return rom.InstallResult{}, err
 	}
-	dir := filepath.Join(l.Root, folder)
-	target, err := l.targetPath(dir, base, ext)
-	if err != nil {
-		return rom.InstallResult{}, err
-	}
-	if !archive && skipPresent(target, req.File.Size) {
-		return rom.InstallResult{Path: target, Size: req.File.Size, Skipped: true}, nil
+	if rom.SkipInstall(plan, existingFile(target)) {
+		return rom.InstallResult{Path: target, Size: plan.Size, Skipped: true}, nil
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return rom.InstallResult{}, fmt.Errorf("romcatalog: create %s: %w", dir, err)
@@ -132,8 +113,8 @@ func (l *Library) install(ctx context.Context, req rom.InstallRequest, progress 
 		discard(part)
 		return rom.InstallResult{}, err
 	}
-	if archive {
-		return l.installArchive(ctx, dir, base, ext, part, req.Platform.Extensions)
+	if plan.Archive {
+		return l.installArchive(ctx, plan, dir, part, req.Platform.Extensions)
 	}
 	if err := install(part, tempPath(dir, filepath.Base(target)), target, dir); err != nil {
 		return rom.InstallResult{}, err
@@ -142,7 +123,7 @@ func (l *Library) install(ctx context.Context, req rom.InstallRequest, progress 
 	return installedResult(target, false)
 }
 
-func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, archivePath string, exts []string) (rom.InstallResult, error) {
+func (l *Library) installArchive(ctx context.Context, plan rom.InstallPlan, dir, archivePath string, exts []string) (rom.InstallResult, error) {
 	workDir, err := os.MkdirTemp(dir, ".extract-")
 	if err != nil {
 		discard(archivePath)
@@ -153,7 +134,7 @@ func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, arc
 	if err := ctx.Err(); err != nil {
 		return rom.InstallResult{}, err
 	}
-	entries, closeArchive, err := openArchive(l.limits, archiveExt, archivePath)
+	entries, closeArchive, err := openArchive(l.limits, plan.Ext, archivePath)
 	if err != nil {
 		if errors.Is(err, rom.ErrNotRetryable) {
 			discard(archivePath)
@@ -163,7 +144,7 @@ func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, arc
 	defer closeArchive()
 
 	if index, ok := findIndex(entries, exts); ok {
-		return l.installSet(ctx, dir, base, index, entries, workDir, archivePath)
+		return l.installSet(ctx, plan, dir, index, entries, workDir, archivePath)
 	}
 	romPath, romExt, err := extractEntry(ctx, l.limits, entries, workDir, exts)
 	if err != nil {
@@ -172,11 +153,11 @@ func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, arc
 		}
 		return rom.InstallResult{}, err
 	}
-	target, err := l.targetPath(dir, base, romExt)
+	target, err := l.targetPath(plan.Folder, plan.Base+romExt)
 	if err != nil {
 		return rom.InstallResult{}, err
 	}
-	if err := install(romPath, tempPath(dir, base+romExt), target, dir); err != nil {
+	if err := install(romPath, tempPath(dir, plan.Base+romExt), target, dir); err != nil {
 		return rom.InstallResult{}, err
 	}
 	discard(archivePath)
@@ -185,14 +166,14 @@ func (l *Library) installArchive(ctx context.Context, dir, base, archiveExt, arc
 
 // installSet installs the index of a set and every piece it references into one
 // folder of the library.
-func (l *Library) installSet(ctx context.Context, dir, base string, index archiveEntry, entries []archiveEntry, workDir, archivePath string) (rom.InstallResult, error) {
-	folder, err := l.targetPath(dir, base, "")
+func (l *Library) installSet(ctx context.Context, plan rom.InstallPlan, dir string, index archiveEntry, entries []archiveEntry, workDir, archivePath string) (rom.InstallResult, error) {
+	folder, err := l.targetPath(plan.Folder, plan.Base)
 	if err != nil {
 		return rom.InstallResult{}, err
 	}
 	switch info, statErr := os.Stat(folder); {
 	case statErr == nil && info.IsDir():
-		if setPresent(folder, path.Base(index.name)) {
+		if rom.SkipSet(existingFile(filepath.Join(folder, path.Base(index.name)))) {
 			discard(archivePath)
 			return installedSetResult(folder, true, true)
 		}
@@ -212,39 +193,41 @@ func (l *Library) installSet(ctx context.Context, dir, base string, index archiv
 		}
 		return rom.InstallResult{}, err
 	}
-	staged := filepath.Join(workDir, base)
+	staged := filepath.Join(workDir, plan.Base)
 	if err := writeSet(ctx, l.limits, pieces, staged); err != nil {
 		if errors.Is(err, rom.ErrNotRetryable) {
 			discard(archivePath)
 		}
 		return rom.InstallResult{}, err
 	}
-	if err := install(staged, tempPath(dir, base), folder, dir); err != nil {
+	if err := install(staged, tempPath(dir, plan.Base), folder, dir); err != nil {
 		return rom.InstallResult{}, err
 	}
 	discard(archivePath)
 	return installedSetResult(folder, false, true)
 }
 
-func (l *Library) targetPath(dir, base, ext string) (string, error) {
-	root := filepath.Clean(l.Root)
-	target := filepath.Join(dir, base+ext)
-	if !strings.HasPrefix(target, root+string(filepath.Separator)) {
-		return "", notRetryable(fmt.Errorf("romcatalog: target %q escapes library root %q", target, root))
+// targetPath returns the path a file takes inside the library and refuses a
+// path that would leave the root.
+func (l *Library) targetPath(folder, name string) (string, error) {
+	rel, err := rom.LibraryPath(folder, name)
+	if err != nil {
+		return "", notRetryable(err)
 	}
-	return target, nil
+	return filepath.Join(l.Root, filepath.FromSlash(rel)), nil
 }
 
 func tempPath(dir, name string) string {
 	return filepath.Join(dir, "."+name+".tmp")
 }
 
-func skipPresent(target string, size int64) bool {
-	if size <= 0 {
-		return false
-	}
+// existingFile reports what the library holds at the path.
+func existingFile(target string) rom.ExistingFile {
 	info, err := os.Stat(target)
-	return err == nil && info.Mode().IsRegular() && info.Size() == size
+	if err != nil {
+		return rom.ExistingFile{}
+	}
+	return rom.ExistingFile{Exists: true, Regular: info.Mode().IsRegular(), Size: info.Size()}
 }
 
 func installedResult(path string, extracted bool) (rom.InstallResult, error) {
@@ -262,12 +245,6 @@ func installedSetResult(folder string, skipped, extracted bool) (rom.InstallResu
 		return rom.InstallResult{}, fmt.Errorf("romcatalog: measure %s: %w", folder, err)
 	}
 	return rom.InstallResult{Path: folder, Size: size, Skipped: skipped, Extracted: extracted}, nil
-}
-
-// setPresent reports whether the folder already holds the index of the set.
-func setPresent(folder, index string) bool {
-	info, err := os.Stat(filepath.Join(folder, index))
-	return err == nil && info.Mode().IsRegular()
 }
 
 // folderSize returns the bytes the files of a folder hold.

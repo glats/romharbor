@@ -1,6 +1,9 @@
 package rom
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var (
 	ErrGameNotFound    = errors.New("game not found")
@@ -11,4 +14,10 @@ var (
 	ErrJobNotFound     = errors.New("job not found")
 	ErrNotRetryable    = errors.New("retrying cannot fix this failure")
 	ErrLeaseLost       = errors.New("job lease lost")
+	ErrOutsideLibrary  = errors.New("the path leaves the library")
 )
+
+// permanent marks a failure a retry cannot fix.
+func permanent(err error) error {
+	return fmt.Errorf("%w: %w", err, ErrNotRetryable)
+}

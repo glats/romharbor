@@ -280,7 +280,7 @@ func TestInstallNeutralizesTraversal(t *testing.T) {
 
 	res, err := l.Install(context.Background(), rom.InstallRequest{
 		Platform: snesPlatform,
-		File:     rom.File{Name: "../../etc/passwd", Size: int64(len(body)), URL: srv.URL},
+		File:     rom.File{Name: "../../etc/passwd.sfc", Size: int64(len(body)), URL: srv.URL},
 	}, nil)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)

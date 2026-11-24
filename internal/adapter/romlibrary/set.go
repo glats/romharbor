@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+
+	"app.ddd/internal/domain/rom"
 )
 
 // maxIndexBytes is the size an index file may reach before it is refused.
@@ -23,7 +25,7 @@ var indexExtensions = []string{".m3u", ".gdi", ".cue"}
 // accepts the extension of the index.
 func findIndex(entries []archiveEntry, exts []string) (archiveEntry, bool) {
 	for _, ext := range indexExtensions {
-		if !acceptsExtension(exts, ext) {
+		if !rom.AcceptsExtension(exts, ext) {
 			continue
 		}
 		for _, e := range entries {
@@ -33,16 +35,6 @@ func findIndex(entries []archiveEntry, exts []string) (archiveEntry, bool) {
 		}
 	}
 	return archiveEntry{}, false
-}
-
-// acceptsExtension reports whether the platform accepts the extension.
-func acceptsExtension(exts []string, ext string) bool {
-	for _, e := range exts {
-		if strings.EqualFold(e, ext) {
-			return true
-		}
-	}
-	return false
 }
 
 // archiveLookup finds the entries of an archive by the path they hold.

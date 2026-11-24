@@ -158,15 +158,10 @@ func PickROM(names []string, exts []string) (int, bool) {
 	return first, first >= 0
 }
 
-// HasROMExt reports whether name ends with one of the extensions, ignoring case.
+// HasROMExt reports whether the extension of name is one of the extensions,
+// ignoring case.
 func HasROMExt(name string, exts []string) bool {
-	lower := strings.ToLower(name)
-	for _, ext := range exts {
-		if strings.HasSuffix(lower, strings.ToLower(ext)) {
-			return true
-		}
-	}
-	return false
+	return AcceptsExtension(exts, path.Ext(name))
 }
 
 // NoROMError reports an archive that holds no file with an accepted extension.
