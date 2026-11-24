@@ -36,14 +36,14 @@ func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
 		Fetched: time.Now(), Games: []rom.Game{game},
 	}))
 	listings := romlistings.NewListings(nil, cache, 0)
-	_, err := listings.Games(ctx, "snes", "", 0, 1)
+	_, err := listings.ObtainPlatformListing(ctx, "snes")
 	require.NoError(t, err)
 	require.NoError(t, cache.Store("snes", rom.Listing{Fetched: time.Now()}))
 	jobs := newJobs(t)
 	downloads := newDownloads(t, nil, jobs, nil)
 	require.NoError(t, downloads.Shutdown(ctx))
 	application := service.NewApp(nil, listings, downloads, jobs, nil)
-	games, err := application.Query.ListGames.Handle(ctx, query.ListGames{
+	games, err := application.Query.BrowsePlatformGames.Handle(ctx, query.BrowsePlatformGames{
 		Platform: "snes", Limit: 1,
 	})
 	require.NoError(t, err)

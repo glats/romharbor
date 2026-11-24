@@ -51,8 +51,9 @@ type RomJobQueue interface {
 }
 
 type RomListings interface {
-	PlatformCounts(ctx context.Context) []rom.PlatformCount
-	Games(ctx context.Context, platform, text string, offset, limit int) (rom.GamePage, error)
+	PlatformCounts(ctx context.Context) ([]rom.PlatformCount, error)
+	ObtainPlatformListing(ctx context.Context, platform string) (rom.GamePage, error)
+	SearchSources(ctx context.Context, text, platform string) (rom.GamePage, error)
 	Game(ctx context.Context, id string) (rom.Game, bool, error)
 }
 

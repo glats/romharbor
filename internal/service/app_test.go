@@ -53,7 +53,8 @@ func TestNewAppWiresEveryHandler(t *testing.T) {
 	assert.NotNil(t, application.Query.ListUsers)
 	assert.NotNil(t, application.Command.StartDownload)
 	assert.NotNil(t, application.Query.ListPlatforms)
-	assert.NotNil(t, application.Query.ListGames)
+	assert.NotNil(t, application.Query.BrowsePlatformGames)
+	assert.NotNil(t, application.Query.SearchGames)
 	assert.NotNil(t, application.Query.ObtainGame)
 	assert.NotNil(t, application.Query.ListJobs)
 	assert.NotNil(t, application.Query.ObtainJob)
@@ -67,7 +68,7 @@ func TestApplicationHasNoParallelCatalogService(t *testing.T) {
 		_, ok := reflect.TypeOf(app.Command{}).FieldByName(name)
 		assert.True(t, ok, "Command."+name)
 	}
-	for _, name := range []string{"ListPlatforms", "ListGames", "ObtainGame", "ListJobs", "ObtainJob", "ObtainDestination"} {
+	for _, name := range []string{"ListPlatforms", "BrowsePlatformGames", "SearchGames", "ObtainGame", "ListJobs", "ObtainJob", "ObtainDestination"} {
 		_, ok := reflect.TypeOf(app.Query{}).FieldByName(name)
 		assert.True(t, ok, "Query."+name)
 	}

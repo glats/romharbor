@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -23,14 +24,17 @@ type brokenListings struct {
 	games    []rom.Game
 	gamesErr error
 	gameErr  error
-	offset   int
-	limit    int
 }
 
-func (l *brokenListings) PlatformCounts(context.Context) []rom.PlatformCount { return nil }
+func (l *brokenListings) PlatformCounts(context.Context) ([]rom.PlatformCount, error) {
+	return nil, nil
+}
 
-func (l *brokenListings) Games(_ context.Context, platform, _ string, offset, limit int) (rom.GamePage, error) {
-	l.offset, l.limit = offset, limit
+func (l *brokenListings) SearchSources(ctx context.Context, _, platform string) (rom.GamePage, error) {
+	return l.ObtainPlatformListing(ctx, platform)
+}
+
+func (l *brokenListings) ObtainPlatformListing(_ context.Context, platform string) (rom.GamePage, error) {
 	if l.gamesErr != nil {
 		return rom.GamePage{}, l.gamesErr
 	}
@@ -211,20 +215,31 @@ func TestCatalogGamesRejectsInvalidPagingParameters(t *testing.T) {
 }
 
 func TestCatalogGamesCapsTheLimitAtTheSourcePageSize(t *testing.T) {
-	listings := &brokenListings{}
-	handler, _ := newBrokenCatalogHandler(t, listings, brokenJobs{}, brokenLibrary{}, brokenDownloads{})
+	var games []rom.Game
+	for i := range 300 {
+		games = append(games, rom.Game{ID: fmt.Sprintf("g%03d", i), Title: fmt.Sprintf("G%03d", i)})
+	}
+	handler, _ := newBrokenCatalogHandler(t, &brokenListings{games: games}, brokenJobs{}, brokenLibrary{}, brokenDownloads{})
+	count := func(target string) (int, string) {
+		rec := do(t, handler, http.MethodGet, target)
+		require.Equal(t, http.StatusOK, rec.Code)
+		var body struct{ Games []rom.Game }
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		first := ""
+		if len(body.Games) > 0 {
+			first = body.Games[0].ID
+		}
+		return len(body.Games), first
+	}
 
-	require.Equal(t, http.StatusOK, do(t, handler, http.MethodGet, "/api/games?limit=1000").Code)
-	assert.Equal(t, 200, listings.limit)
-
-	require.Equal(t, http.StatusOK, do(t, handler, http.MethodGet, "/api/games?limit=10").Code)
-	assert.Equal(t, 10, listings.limit)
-
-	require.Equal(t, http.StatusOK, do(t, handler, http.MethodGet, "/api/games").Code)
-	assert.Equal(t, 50, listings.limit)
-
-	require.Equal(t, http.StatusOK, do(t, handler, http.MethodGet, "/api/games?offset=5").Code)
-	assert.Equal(t, 5, listings.offset)
+	n, _ := count("/api/games?limit=1000")
+	assert.Equal(t, 200, n)
+	n, _ = count("/api/games?limit=10")
+	assert.Equal(t, 10, n)
+	n, _ = count("/api/games")
+	assert.Equal(t, 50, n)
+	_, first := count("/api/games?offset=5")
+	assert.Equal(t, "g005", first)
 }
 
 func TestCatalogDownloadAnswersAMalformedBodyWithoutTheDecoderText(t *testing.T) {

@@ -19,8 +19,11 @@ func TestUnknownPlatformRejectedBeforeSourcesAndCache(t *testing.T) {
 	listings := NewListings(nil, nil, 0)
 	for _, platform := range []string{"../neighbor", "unknown"} {
 		for _, text := range []string{"", "mario"} {
-			if _, err := listings.Games(context.Background(), platform, text, 0, 10); !errors.Is(err, rom.ErrUnknownPlatform) {
-				t.Errorf("Games(%q, %q) error = %v", platform, text, err)
+			if _, err := listings.ObtainPlatformListing(context.Background(), platform); !errors.Is(err, rom.ErrUnknownPlatform) {
+				t.Errorf("ObtainPlatformListing(%q) error = %v", platform, err)
+			}
+			if _, err := listings.SearchSources(context.Background(), text, platform); !errors.Is(err, rom.ErrUnknownPlatform) {
+				t.Errorf("SearchSources(%q, %q) error = %v", text, platform, err)
 			}
 		}
 		if _, err := listings.Count(context.Background(), platform); !errors.Is(err, rom.ErrUnknownPlatform) {
@@ -32,10 +35,10 @@ func TestUnknownPlatformRejectedBeforeSourcesAndCache(t *testing.T) {
 func TestEmptyPlatformListsEverySource(t *testing.T) {
 	listings := NewListings([]adapter.RomSource{gameSource{games: []rom.Game{{ID: "g", Title: "G"}}}}, &memoryCache{}, time.Hour)
 
-	page, err := listings.Games(context.Background(), "", "", 0, 10)
+	page, err := listings.ObtainPlatformListing(context.Background(), "")
 
 	if err != nil || len(page.Games) != 1 {
-		t.Fatalf("Games() = %+v, %v", page, err)
+		t.Fatalf("ObtainPlatformListing() = %+v, %v", page, err)
 	}
 }
 
@@ -56,16 +59,16 @@ func TestSearchOnlySourceRetainsResultsWithoutPollutingListing(t *testing.T) {
 				sources = append(sources, gameSource{games: []rom.Game{{ID: "listed", Title: "Mario Listed"}}})
 			}
 			listings := NewListings(sources, &memoryCache{}, time.Hour)
-			page, err := listings.Games(context.Background(), "snes", "mario", 0, 10)
-			want := 1
+			page, err := listings.SearchSources(context.Background(), "mario", "snes")
+			listed := 0
 			if mixed {
-				want++
+				listed = 1
 			}
-			if err != nil || len(page.Games) != want {
-				t.Fatalf("Games() = %+v, %v", page, err)
+			if err != nil || len(page.Games) != 1 {
+				t.Fatalf("ObtainPlatformListing() = %+v, %v", page, err)
 			}
 			count, err := listings.Count(context.Background(), "snes")
-			if err != nil || count != want-1 {
+			if err != nil || count != listed {
 				t.Fatalf("Count() = %d, %v; query polluted listing", count, err)
 			}
 			for _, game := range page.Games {
@@ -83,17 +86,17 @@ func TestSearchOnlySourceRetainsResultsWithoutPollutingListing(t *testing.T) {
 func TestStaleListingServedWhenSourcesFail(t *testing.T) {
 	source := &flakySource{}
 	listings := NewListings([]adapter.RomSource{source}, &memoryCache{}, time.Nanosecond)
-	if _, err := listings.Games(context.Background(), "snes", "", 0, 10); err != nil {
-		t.Fatalf("first Games() error = %v", err)
+	if _, err := listings.ObtainPlatformListing(context.Background(), "snes"); err != nil {
+		t.Fatalf("first ObtainPlatformListing() error = %v", err)
 	}
 
 	source.down = true
-	page, err := listings.Games(context.Background(), "snes", "", 0, 10)
+	page, err := listings.ObtainPlatformListing(context.Background(), "snes")
 	if err != nil {
-		t.Fatalf("Games() error = %v, want stale fallback", err)
+		t.Fatalf("ObtainPlatformListing() error = %v, want stale fallback", err)
 	}
 	if len(page.Games) != 1 || page.Games[0].ID != "old" {
-		t.Fatalf("Games() = %+v, want the stale listing", page)
+		t.Fatalf("ObtainPlatformListing() = %+v, want the stale listing", page)
 	}
 }
 
@@ -101,12 +104,12 @@ func TestCacheWriteFailureKeepsTheFetchedGamesAndIsLogged(t *testing.T) {
 	logs := captureLogs(t)
 	listings := NewListings([]adapter.RomSource{gameSource{games: []rom.Game{{ID: "g", Title: "G"}}}}, failingStoreCache{}, time.Hour)
 
-	games, err := listings.Games(context.Background(), "snes", "", 0, 10)
+	games, err := listings.ObtainPlatformListing(context.Background(), "snes")
 	if err != nil {
-		t.Fatalf("Games() error = %v, want the fetched games", err)
+		t.Fatalf("ObtainPlatformListing() error = %v, want the fetched games", err)
 	}
 	if len(games.Games) != 1 || games.Games[0].ID != "g" {
-		t.Fatalf("Games() = %+v, want the fetched game", games)
+		t.Fatalf("ObtainPlatformListing() = %+v, want the fetched game", games)
 	}
 	count, err := listings.Count(context.Background(), "snes")
 	if err != nil || count != 1 {
@@ -128,7 +131,10 @@ func TestPlatformCountsLogsAFailingPlatformAndKeepsTheCachedCount(t *testing.T) 
 	}
 	listings := NewListings(sources, cache, time.Hour)
 
-	counts := listings.PlatformCounts(context.Background())
+	counts, err := listings.PlatformCounts(context.Background())
+	if err != nil {
+		t.Fatalf("PlatformCounts() error = %v", err)
+	}
 
 	got := map[string]int{}
 	for _, c := range counts {
@@ -153,12 +159,12 @@ func TestUnusableCacheEntryIsLoggedAndTreatedAsAMiss(t *testing.T) {
 	cache := &listingCache{loadErr: errors.New("cache entry is corrupt")}
 	listings := NewListings([]adapter.RomSource{gameSource{games: []rom.Game{{ID: "g", Title: "G"}}}}, cache, time.Hour)
 
-	games, err := listings.Games(context.Background(), "snes", "", 0, 10)
+	games, err := listings.ObtainPlatformListing(context.Background(), "snes")
 	if err != nil {
-		t.Fatalf("Games() error = %v, want the fetched games", err)
+		t.Fatalf("ObtainPlatformListing() error = %v, want the fetched games", err)
 	}
 	if len(games.Games) != 1 || games.Games[0].ID != "g" {
-		t.Fatalf("Games() = %+v, want the fetched game", games)
+		t.Fatalf("ObtainPlatformListing() = %+v, want the fetched game", games)
 	}
 	if got := logLines(logs.String(), "cache entry is corrupt"); got != 1 {
 		t.Fatalf("logged %d unusable cache entries, want 1: %s", got, logs.String())
@@ -169,10 +175,10 @@ func TestMissingCacheEntryIsNotLogged(t *testing.T) {
 	logs := captureLogs(t)
 	listings := NewListings([]adapter.RomSource{gameSource{games: []rom.Game{{ID: "g", Title: "G"}}}}, &listingCache{}, time.Hour)
 
-	games, err := listings.Games(context.Background(), "snes", "", 0, 10)
+	games, err := listings.ObtainPlatformListing(context.Background(), "snes")
 
 	if err != nil || len(games.Games) != 1 {
-		t.Fatalf("Games() = %+v, %v; want the fetched game", games, err)
+		t.Fatalf("ObtainPlatformListing() = %+v, %v; want the fetched game", games, err)
 	}
 	if strings.Contains(logs.String(), "cache") {
 		t.Fatalf("a missing cache entry was logged: %s", logs.String())

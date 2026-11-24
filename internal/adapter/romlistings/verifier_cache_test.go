@@ -21,7 +21,7 @@ func TestVerifierCacheFailureAndStale(t *testing.T) {
 		l := NewListings([]adapter.RomSource{s}, c, time.Nanosecond)
 		var log bytes.Buffer
 		l.logger = slog.New(slog.NewTextHandler(&log, nil))
-		p, e := l.Games(context.Background(), "snes", "", 0, 50)
+		p, e := l.ObtainPlatformListing(context.Background(), "snes")
 		if e != nil || len(p.Games) != 1 {
 			t.Fatalf("%+v %v", p, e)
 		}
@@ -32,7 +32,7 @@ func TestVerifierCacheFailureAndStale(t *testing.T) {
 			t.Fatal(log.String())
 		}
 		s.err = errors.New("offline")
-		p, e = l.Games(context.Background(), "snes", "", 0, 50)
+		p, e = l.ObtainPlatformListing(context.Background(), "snes")
 		if e != nil || len(p.Games) != 1 || len(p.FailedSources) != 1 {
 			t.Fatalf("stale %+v %v", p, e)
 		}

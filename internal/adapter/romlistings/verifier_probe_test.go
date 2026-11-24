@@ -43,7 +43,7 @@ func TestVerifierPartialPriority(t *testing.T) {
 	l := NewListings([]adapter.RomSource{a, b, bad}, c, time.Hour)
 	l.registry.timeout = 30 * time.Millisecond
 	for range 2 {
-		p, e := l.Games(context.Background(), "snes", "", 0, 50)
+		p, e := l.ObtainPlatformListing(context.Background(), "snes")
 		if e != nil || len(p.Games) != 1 || p.Games[0].Title != "first" || len(p.FailedSources) != 1 || p.FailedSources[0] != "timeout" {
 			t.Fatalf("%+v %v", p, e)
 		}
@@ -53,7 +53,7 @@ func TestVerifierPartialPriority(t *testing.T) {
 	}
 	a.err = errors.New("bad")
 	b.err = errors.New("bad")
-	p, e := l.Games(context.Background(), "snes", "", 0, 50)
+	p, e := l.ObtainPlatformListing(context.Background(), "snes")
 	if e == nil {
 		t.Fatalf("all-failed %+v %v", p, e)
 	}

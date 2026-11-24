@@ -18,7 +18,7 @@ func TestPartialListingIsNotCached(t *testing.T) {
 		scriptedSource{name: "healthy", games: []rom.Game{{ID: "g", Title: "G"}}},
 	}, cache, time.Hour)
 
-	page, err := listings.Games(context.Background(), "snes", "", 0, 10)
+	page, err := listings.ObtainPlatformListing(context.Background(), "snes")
 	if err != nil {
 		t.Fatalf("Games: %v", err)
 	}

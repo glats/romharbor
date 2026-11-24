@@ -3,6 +3,7 @@ package romlistings
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"sync"
@@ -40,49 +41,50 @@ func NewListings(sources []adapter.RomSource, cache adapter.RomListingCache, ttl
 	}
 }
 
-func (l *Listings) PlatformCounts(ctx context.Context) []rom.PlatformCount {
+func (l *Listings) PlatformCounts(ctx context.Context) ([]rom.PlatformCount, error) {
 	out := []rom.PlatformCount{}
+	var errs []error
 	for _, p := range rom.Platforms() {
 		count, err := l.Count(ctx, p.Slug)
 		if err != nil {
 			l.logger.Error("platform count failed", "platform", p.Slug, "error", err)
 			if last, ok := l.lastKnownCount(p.Slug); ok {
 				out = append(out, rom.PlatformCount{Platform: p, Count: last})
+			} else {
+				errs = append(errs, fmt.Errorf("count %s: %w", p.Slug, err))
 			}
 			continue
 		}
 		out = append(out, rom.PlatformCount{Platform: p, Count: count})
 	}
-	return out
+	if len(out) == 0 && len(errs) > 0 {
+		return nil, errors.Join(errs...)
+	}
+	return out, nil
 }
 
-func (l *Listings) Games(ctx context.Context, platform, text string, offset, limit int) (rom.GamePage, error) {
-	listing, err := l.listing(ctx, platform)
-	if err != nil && (text == "" || errors.Is(err, rom.ErrUnknownPlatform)) {
-		return rom.GamePage{}, err
+// ObtainPlatformListing returns every game of a platform, or of all platforms
+// when the platform is empty.
+func (l *Listings) ObtainPlatformListing(ctx context.Context, platform string) (rom.GamePage, error) {
+	return l.listing(ctx, platform)
+}
+
+// SearchSources asks the sources that can search for the text. Games found
+// this way are remembered so they can be resolved by ID later.
+func (l *Listings) SearchSources(ctx context.Context, text, platform string) (rom.GamePage, error) {
+	if _, ok := rom.PlatformBySlug(platform); platform != "" && !ok {
+		return rom.GamePage{}, rom.ErrUnknownPlatform
 	}
-	games := listing.Games
-	failed := append([]string(nil), listing.FailedSources...)
-	if text != "" {
-		found, searchErr := l.registry.search(ctx, rom.Query{Platform: platform, Text: text})
-		if err != nil && len(found.Games) == 0 {
-			return rom.GamePage{}, err
+	found, err := l.registry.search(ctx, rom.Query{Platform: platform, Text: text})
+	l.mu.Lock()
+	for i := range found.Games {
+		if p, ok := rom.PlatformBySlug(found.Games[i].Platform); ok {
+			found.Games[i].Cover = p.CoverURL(found.Games[i].Title)
 		}
-		if searchErr != nil && len(listing.Games) == 0 {
-			return rom.GamePage{}, searchErr
-		}
-		l.mu.Lock()
-		for i := range found.Games {
-			if p, ok := rom.PlatformBySlug(found.Games[i].Platform); ok {
-				found.Games[i].Cover = p.CoverURL(found.Games[i].Title)
-			}
-			l.searchGames[found.Games[i].ID] = found.Games[i]
-		}
-		l.mu.Unlock()
-		games = rom.FilterByTitle(rom.MergeGames(listing.Games, found.Games), text)
-		failed = append(failed, found.FailedSources...)
+		l.searchGames[found.Games[i].ID] = found.Games[i]
 	}
-	return rom.GamePage{Games: rom.Page(games, offset, limit), FailedSources: failed}, nil
+	l.mu.Unlock()
+	return found, err
 }
 
 func (l *Listings) Count(ctx context.Context, platform string) (int, error) {

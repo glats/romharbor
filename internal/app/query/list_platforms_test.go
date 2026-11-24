@@ -47,8 +47,12 @@ func TestCatalogQueriesReportDecoratorMetrics(t *testing.T) {
 			_, err := NewListPlatformsHandler(listings, metrics).Handle(ctx, ListPlatforms{})
 			return err
 		},
-		"querys.listgames.success": func() error {
-			_, err := NewListGamesHandler(listings, metrics).Handle(ctx, ListGames{Platform: "snes", Limit: 1})
+		"querys.browseplatformgames.success": func() error {
+			_, err := NewBrowsePlatformGamesHandler(listings, metrics).Handle(ctx, BrowsePlatformGames{Platform: "snes", Limit: 1})
+			return err
+		},
+		"querys.searchgames.success": func() error {
+			_, err := NewSearchGamesHandler(listings, metrics).Handle(ctx, SearchGames{Text: "zelda", Platform: "snes", Limit: 1})
 			return err
 		},
 		"querys.obtaingame.success": func() error {

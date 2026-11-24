@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
@@ -92,7 +93,7 @@ func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
 		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: platform.Name})
 		return
 	}
-	games, err := h.app.Query.ListGames.Handle(r.Context(), query.ListGames{Platform: platform.Slug, Text: text, Limit: maxCatalogLimit})
+	games, err := h.catalogGames(r.Context(), platform.Slug, text, 0, maxCatalogLimit)
 	if err != nil {
 		h.catalogFail(w, r, err, http.StatusBadGateway, catalogPageData{Title: platform.Name, Platform: platform})
 		return
@@ -171,6 +172,13 @@ func (h *Handler) catalogAPIPlatforms(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"platforms": out})
 }
 
+func (h *Handler) catalogGames(ctx context.Context, platform, text string, offset, limit int) (rom.GamePage, error) {
+	if text == "" {
+		return h.app.Query.BrowsePlatformGames.Handle(ctx, query.BrowsePlatformGames{Platform: platform, Offset: offset, Limit: limit})
+	}
+	return h.app.Query.SearchGames.Handle(ctx, query.SearchGames{Text: text, Platform: platform, Offset: offset, Limit: limit})
+}
+
 func (h *Handler) catalogAPIGames(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
 	offset, ok := catalogPagingInt(params.Get("offset"), 0)
@@ -186,12 +194,7 @@ func (h *Handler) catalogAPIGames(w http.ResponseWriter, r *http.Request) {
 	if limit > maxCatalogLimit {
 		limit = maxCatalogLimit
 	}
-	games, err := h.app.Query.ListGames.Handle(r.Context(), query.ListGames{
-		Platform: params.Get("platform"),
-		Text:     params.Get("q"),
-		Offset:   offset,
-		Limit:    limit,
-	})
+	games, err := h.catalogGames(r.Context(), params.Get("platform"), params.Get("q"), offset, limit)
 	if errors.Is(err, rom.ErrUnknownPlatform) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown platform"})
 		return

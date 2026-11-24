@@ -21,5 +21,5 @@ func NewListPlatformsHandler(listings adapter.RomListings, metric decorator.Metr
 }
 
 func (q listPlatformsQuery) Handle(ctx context.Context, _ ListPlatforms) ([]rom.PlatformCount, error) {
-	return q.listings.PlatformCounts(ctx), nil
+	return q.listings.PlatformCounts(ctx)
 }

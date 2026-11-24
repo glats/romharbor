@@ -27,9 +27,15 @@ type failingListings struct {
 	err error
 }
 
-func (f failingListings) PlatformCounts(context.Context) []rom.PlatformCount { return nil }
+func (f failingListings) PlatformCounts(context.Context) ([]rom.PlatformCount, error) {
+	return nil, f.err
+}
 
-func (f failingListings) Games(context.Context, string, string, int, int) (rom.GamePage, error) {
+func (f failingListings) ObtainPlatformListing(context.Context, string) (rom.GamePage, error) {
+	return rom.GamePage{}, f.err
+}
+
+func (f failingListings) SearchSources(context.Context, string, string) (rom.GamePage, error) {
 	return rom.GamePage{}, f.err
 }
 

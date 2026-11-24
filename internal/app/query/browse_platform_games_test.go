@@ -3,7 +3,6 @@ package query
 import (
 	"context"
 	"errors"
-	"strings"
 	"testing"
 	"time"
 
@@ -19,6 +18,10 @@ import (
 type fixtureSource struct {
 	games []rom.Game
 }
+
+type searchOnlySource struct{ fixtureSource }
+
+func (searchOnlySource) SearchOnly() bool { return true }
 
 func (f fixtureSource) Name() string        { return "fixture" }
 func (f fixtureSource) Platforms() []string { return nil }
@@ -41,29 +44,22 @@ func newListings(games ...rom.Game) *romlistings.Listings {
 	return romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour)
 }
 
-func TestListGamesPagesTheListingAndFiltersByText(t *testing.T) {
-	handler := NewListGamesHandler(newListings(
+func TestBrowsePlatformGamesPagesTheListing(t *testing.T) {
+	handler := NewBrowsePlatformGamesHandler(newListings(
 		rom.Game{ID: "1", Platform: "snes", Title: "Super Mario World"},
 		rom.Game{ID: "2", Platform: "snes", Title: "Zelda"},
 		rom.Game{ID: "3", Platform: "snes", Title: "Mario Kart"},
 	), metric.NoOp{})
-	ctx := context.Background()
 
-	page, err := handler.Handle(ctx, ListGames{Platform: "snes", Offset: 1, Limit: 1})
+	page, err := handler.Handle(context.Background(), BrowsePlatformGames{Platform: "snes", Offset: 1, Limit: 1})
+
 	require.NoError(t, err)
 	require.Len(t, page.Games, 1)
 	assert.Equal(t, "2", page.Games[0].ID)
-
-	matches, err := handler.Handle(ctx, ListGames{Platform: "snes", Text: "MARIO", Limit: 10})
-	require.NoError(t, err)
-	require.Len(t, matches.Games, 2)
-	for _, game := range matches.Games {
-		assert.True(t, strings.Contains(strings.ToLower(game.Title), "mario"), game.Title)
-	}
 }
 
-func TestListGamesRejectsUnknownPlatforms(t *testing.T) {
-	_, err := NewListGamesHandler(newListings(), metric.NoOp{}).Handle(context.Background(), ListGames{Platform: "../neighbor"})
+func TestBrowsePlatformGamesRejectsUnknownPlatforms(t *testing.T) {
+	_, err := NewBrowsePlatformGamesHandler(newListings(), metric.NoOp{}).Handle(context.Background(), BrowsePlatformGames{Platform: "../neighbor"})
 
 	assert.ErrorIs(t, err, rom.ErrUnknownPlatform)
 }
