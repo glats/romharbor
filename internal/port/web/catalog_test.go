@@ -48,6 +48,15 @@ func (f fixtureSource) Search(_ context.Context, q rom.Query) ([]rom.Game, error
 	return out, nil
 }
 
+func (f fixtureSource) ResolvePlatform(_ context.Context, id string) (string, bool, error) {
+	for _, g := range f.games {
+		if g.ID == id {
+			return g.Platform, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func newCatalogHandler(t *testing.T, library string, games ...rom.Game) http.Handler {
 	t.Helper()
 	return newCatalogHandlerWithCache(t, t.TempDir(), library, games...)

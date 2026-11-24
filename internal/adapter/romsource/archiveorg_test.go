@@ -143,3 +143,23 @@ func captureLogs(t *testing.T) *bytes.Buffer {
 	t.Cleanup(func() { slog.SetDefault(previous) })
 	return buffer
 }
+
+func TestArchiveOrgNamesThePlatformOfAnID(t *testing.T) {
+	source := &ArchiveOrg{Sets: map[string][]string{"snes": {"snes-set"}, "psx": {"psx-set"}}}
+	cases := []struct {
+		id       string
+		platform string
+		found    bool
+	}{
+		{"archive.org:psx-set/Game (USA).zip", "psx", true},
+		{"archive.org:snes-set/Game.zip", "snes", true},
+		{"archive.org:unknown-set/Game.zip", "", false},
+		{"dlarchive:abc", "", false},
+	}
+	for _, c := range cases {
+		platform, found, err := source.ResolvePlatform(context.Background(), c.id)
+		if err != nil || platform != c.platform || found != c.found {
+			t.Errorf("ResolvePlatform(%q) = %q, %t, %v; want %q, %t, nil", c.id, platform, found, err, c.platform, c.found)
+		}
+	}
+}

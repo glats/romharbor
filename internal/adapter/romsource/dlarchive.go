@@ -2,6 +2,7 @@ package romsource
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -14,7 +15,52 @@ import (
 	"app.ddd/internal/domain/rom"
 )
 
+type dlArchiveFlight[T any] struct {
+	done  chan struct{}
+	value T
+	err   error
+}
+
+type singleflight[T any] struct {
+	mu    sync.Mutex
+	calls map[string]*dlArchiveFlight[T]
+}
+
+func (s *singleflight[T]) do(ctx context.Context, key string, fn func(context.Context) (T, error)) (T, error) {
+	if err := ctx.Err(); err != nil {
+		var zero T
+		return zero, err
+	}
+	s.mu.Lock()
+	if s.calls == nil {
+		s.calls = map[string]*dlArchiveFlight[T]{}
+	}
+	if call, ok := s.calls[key]; ok {
+		s.mu.Unlock()
+		select {
+		case <-call.done:
+			return call.value, call.err
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err()
+		}
+	}
+	call := &dlArchiveFlight[T]{done: make(chan struct{})}
+	s.calls[key] = call
+	s.mu.Unlock()
+
+	call.value, call.err = fn(ctx)
+	close(call.done)
+
+	s.mu.Lock()
+	delete(s.calls, key)
+	s.mu.Unlock()
+	return call.value, call.err
+}
+
 const dlArchiveMaxResponseBytes = 8 << 20
+
+const dlArchiveIDPrefix = "dlarchive:"
 
 // DlArchive serves games from the dlarchive index, a JSON listing of a
 // personal file host that groups ROMs by platform folder.
@@ -27,6 +73,8 @@ type DlArchive struct {
 	mu      sync.Mutex
 	index   []dlarchiveapi.DlArchiveItem
 	fetched time.Time
+
+	flights singleflight[[]dlarchiveapi.DlArchiveItem]
 }
 
 // NewDlArchive returns the dlarchive source.
@@ -96,7 +144,7 @@ func (d *DlArchive) Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 		}
 		title := rom.CleanTitle(item.Filename)
 		games = append(games, rom.Game{
-			ID:       "dlarchive:" + item.Id,
+			ID:       dlArchiveIDPrefix + item.Id,
 			Source:   "dlarchive",
 			Platform: slug,
 			Title:    title,
@@ -116,10 +164,24 @@ func (d *DlArchive) Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 
 // items returns the index, fetching it when it is missing or stale.
 func (d *DlArchive) items(ctx context.Context) ([]dlarchiveapi.DlArchiveItem, error) {
+	if index, ok := d.cachedItems(); ok {
+		return index, nil
+	}
+	return d.flights.do(ctx, "index", d.fetchItems)
+}
+
+func (d *DlArchive) cachedItems() ([]dlarchiveapi.DlArchiveItem, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.index != nil && time.Since(d.fetched) < d.TTL {
-		return d.index, nil
+		return d.index, true
+	}
+	return nil, false
+}
+
+func (d *DlArchive) fetchItems(ctx context.Context) ([]dlarchiveapi.DlArchiveItem, error) {
+	if index, ok := d.cachedItems(); ok {
+		return index, nil
 	}
 
 	var (
@@ -137,15 +199,60 @@ func (d *DlArchive) items(ctx context.Context) ([]dlarchiveapi.DlArchiveItem, er
 		if err != nil {
 			return nil, fmt.Errorf("dlarchive: %s: %w", params.Action, err)
 		}
+		refused, err := dlArchivePageRefused(body)
+		if err != nil {
+			return nil, fmt.Errorf("dlarchive: %s: %w", params.Action, err)
+		}
+		if refused {
+			return nil, fmt.Errorf("dlarchive: %s: the provider answered ok=false", params.Action)
+		}
 		items = append(items, page.Items...)
 		offset += len(page.Items)
 		if len(page.Items) == 0 || offset >= page.Total {
 			break
 		}
 	}
+	if len(items) == 0 {
+		return items, nil
+	}
+	d.mu.Lock()
 	d.index = items
 	d.fetched = time.Now()
+	d.mu.Unlock()
 	return items, nil
+}
+
+func dlArchivePageRefused(body *dlarchiveapi.FilesApi200JSONResponseBody) (bool, error) {
+	raw, err := body.MarshalJSON()
+	if err != nil {
+		return false, err
+	}
+	var page struct {
+		Ok *bool `json:"ok"`
+	}
+	if err := json.Unmarshal(raw, &page); err != nil {
+		return false, err
+	}
+	return page.Ok != nil && !*page.Ok, nil
+}
+
+func (d *DlArchive) ResolvePlatform(ctx context.Context, id string) (string, bool, error) {
+	itemID, ok := strings.CutPrefix(id, dlArchiveIDPrefix)
+	if !ok {
+		return "", false, nil
+	}
+	index, err := d.items(ctx)
+	if err != nil {
+		return "", false, err
+	}
+	for _, item := range index {
+		if item.Id != itemID {
+			continue
+		}
+		platform, ok := dlArchiveFolderPlatform(item.Folder)
+		return platform, ok, nil
+	}
+	return "", false, nil
 }
 
 // FileURL resolves the direct download URL of an item.

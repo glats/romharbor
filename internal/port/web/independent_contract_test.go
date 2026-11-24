@@ -34,6 +34,10 @@ func (s *independentSource) Search(context.Context, rom.Query) ([]rom.Game, erro
 	return []rom.Game{{ID: "ok", Platform: "snes", Title: "Synthetic", Files: []rom.File{{Name: "Synthetic.sfc", Size: 9}}}, {ID: "nofile", Platform: "snes", Title: "No file"}}, nil
 }
 
+func (*independentSource) ResolvePlatform(_ context.Context, id string) (string, bool, error) {
+	return "snes", id == "ok" || id == "nofile", nil
+}
+
 type independentLibrary struct {
 	entered chan struct{}
 	block   bool

@@ -12,6 +12,10 @@ type sourceListings struct {
 	registry *registry
 }
 
+type gamePlatformResolver interface {
+	ResolvePlatform(ctx context.Context, id string) (string, bool, error)
+}
+
 func (s *sourceListings) fetch(ctx context.Context, platform string) (rom.GamePage, error) {
 	page, err := s.registry.search(ctx, rom.Query{Platform: platform})
 	if err != nil {
@@ -21,6 +25,23 @@ func (s *sourceListings) fetch(ctx context.Context, platform string) (rom.GamePa
 		withCover(&page.Games[i])
 	}
 	return page, nil
+}
+
+func (s *sourceListings) resolvePlatform(ctx context.Context, id string) (string, bool, error) {
+	for _, source := range s.registry.sources {
+		resolver, ok := source.(gamePlatformResolver)
+		if !ok {
+			continue
+		}
+		platform, found, err := resolver.ResolvePlatform(ctx, id)
+		if err != nil {
+			return "", false, err
+		}
+		if found {
+			return platform, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func (s *sourceListings) search(ctx context.Context, text, platform string) (rom.GamePage, error) {
