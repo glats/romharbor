@@ -58,11 +58,27 @@ func (c *Cache) Store(platform string, listing rom.Listing) error {
 	if err != nil {
 		return fmt.Errorf("cache encode: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmp, err := os.CreateTemp(c.dir, platform+".*.tmp")
+	if err != nil {
+		return fmt.Errorf("cache temporary file: %w", err)
+	}
+	defer func() { _ = os.Remove(tmp.Name()) }()
+	if err := tmp.Chmod(0o644); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("cache temporary file: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
 		return fmt.Errorf("cache write: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return fmt.Errorf("cache sync: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("cache write: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
 		return fmt.Errorf("cache rename: %w", err)
 	}
 	return nil

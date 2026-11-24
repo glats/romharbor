@@ -61,12 +61,6 @@ func (l *Library) install(ctx context.Context, req rom.InstallRequest, progress 
 			l.limits = defaultExtractLimits
 		}
 	})
-	select {
-	case l.installGate <- struct{}{}:
-		defer func() { <-l.installGate }()
-	case <-ctx.Done():
-		return rom.InstallResult{}, ctx.Err()
-	}
 	if err := ctx.Err(); err != nil {
 		return rom.InstallResult{}, err
 	}
@@ -78,6 +72,15 @@ func (l *Library) install(ctx context.Context, req rom.InstallRequest, progress 
 	}
 	plan, err := req.Platform.PlanInstall(req.File)
 	if err != nil {
+		return rom.InstallResult{}, err
+	}
+	select {
+	case l.installGate <- struct{}{}:
+		defer func() { <-l.installGate }()
+	case <-ctx.Done():
+		return rom.InstallResult{}, ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
 		return rom.InstallResult{}, err
 	}
 	dir := filepath.Join(l.Root, plan.Folder)
