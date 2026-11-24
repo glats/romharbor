@@ -51,6 +51,12 @@
       <input id="catalog-search" class="search-input" type="search" name="q" value="{{.Query}}" placeholder="Search in {{.Platform.Name}}" autocomplete="off">
       <button class="button button-primary" type="submit">Search</button>
     </form>
+    {{else}}
+    <form class="search" role="search" method="get" action="/search">
+      <label class="visually-hidden" for="catalog-search">Search every platform</label>
+      <input id="catalog-search" class="search-input" type="search" name="q" value="{{.Query}}" placeholder="Search every platform" autocomplete="off">
+      <button class="button button-primary" type="submit">Search</button>
+    </form>
     {{end}}
     <div class="header-actions">
       <button id="theme-toggle" type="button" class="icon-button" aria-pressed="false" aria-label="Switch to dark theme">
@@ -122,6 +128,22 @@
     {{if .HasPrev}}<a class="button" rel="prev" href="/platform/{{.Platform.Slug}}?q={{.Query}}&amp;limit={{.Limit}}&amp;offset={{.PrevOffset}}">Previous</a>{{end}}
     {{if .HasNext}}<a class="button" rel="next" href="/platform/{{.Platform.Slug}}?q={{.Query}}&amp;limit={{.Limit}}&amp;offset={{.NextOffset}}">Next</a>{{end}}
   </nav>
+  {{end}}
+</section>
+{{end}}
+
+{{if .Searching}}
+<section class="section">
+  <h1>{{if .Query}}Results for &ldquo;{{.Query}}&rdquo;{{else}}Search every platform{{end}}</h1>
+  <p class="sub">Searches the platform listings this server already loaded. Open a platform once to load its games.</p>
+  {{range .Groups}}
+  <h2 class="group-title"><a href="/platform/{{.Platform.Slug}}?q={{$.Query}}">{{.Platform.Name}}</a></h2>
+  <div class="grid">
+  {{range .Games}}{{template "game-card" .}}
+  {{end}}
+  </div>
+  {{else}}
+  {{if .Query}}<p class="empty">No games matched.</p>{{end}}
   {{end}}
 </section>
 {{end}}

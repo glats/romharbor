@@ -613,6 +613,10 @@ main {
   border-color: var(--ok);
 }
 
+.badge-baddump,
+.badge-hack,
+.badge-prototype,
+.badge-unlicensed,
 .badge-incompatible {
   background: var(--bad-soft);
   color: var(--bad);
@@ -626,6 +630,9 @@ main {
 }
 
 .badge-heavy,
+.badge-format,
+.badge-demo,
+.badge-sample,
 .badge-translation,
 .badge-beta {
   background: var(--warn-soft);
@@ -913,4 +920,13 @@ main {
     transition-duration: .01ms !important;
     animation-duration: .01ms !important;
   }
+}
+
+.group-title {
+  margin: var(--space-6, 1.5rem) 0 var(--space-3, 0.75rem);
+  font-size: 1.1rem;
+}
+
+.group-title a {
+  color: inherit;
 }

@@ -29,5 +29,13 @@ func (q browsePlatformGamesQuery) Handle(ctx context.Context, query BrowsePlatfo
 	if err != nil {
 		return rom.GamePage{}, err
 	}
-	return rom.GamePage{Games: rom.Page(listing.Games, query.Offset, query.Limit), FailedSources: listing.FailedSources}, nil
+	return rom.GamePage{Games: rom.Page(preferCompatible(listing.Games, query.Platform), query.Offset, query.Limit), FailedSources: listing.FailedSources}, nil
+}
+
+func preferCompatible(games []rom.Game, slug string) []rom.Game {
+	platform, ok := rom.PlatformBySlug(slug)
+	if !ok {
+		return games
+	}
+	return rom.PreferCompatible(games, platform)
 }

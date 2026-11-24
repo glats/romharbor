@@ -38,6 +38,8 @@ type catalogPageData struct {
 	Platforms     []rom.Platform
 	Platform      *rom.Platform
 	Listing       bool
+	Searching     bool
+	Groups        []searchGroupView
 	Games         []gameView
 	FailedSources []string
 	Total         int
@@ -68,6 +70,7 @@ type catalogGamesResponse struct {
 func (h *Handler) mountCatalog(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", h.catalogHome)
 	mux.HandleFunc("GET /platform/{slug}", h.catalogPlatform)
+	mux.HandleFunc("GET /search", h.catalogSearch)
 	mux.HandleFunc("GET /game/{id}", h.catalogGame)
 	mux.HandleFunc("GET /api/platforms", h.catalogAPIPlatforms)
 	mux.HandleFunc("GET /api/games", h.catalogAPIGames)
@@ -89,6 +92,35 @@ func (h *Handler) catalogHome(w http.ResponseWriter, r *http.Request) {
 		Jobs:       newJobViews(jobs),
 		ActiveJobs: activeJobs(jobs),
 	})
+}
+
+type searchGroupView struct {
+	Platform rom.Platform
+	Games    []gameView
+}
+
+const searchGroupLimit = 24
+
+func (h *Handler) catalogSearch(w http.ResponseWriter, r *http.Request) {
+	text := strings.TrimSpace(r.URL.Query().Get("q"))
+	jobs, err := h.app.Query.ListJobs.Handle(r.Context(), query.ListJobs{})
+	if err != nil {
+		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: "Search"})
+		return
+	}
+	data := catalogPageData{Title: "Search", Searching: true, Query: text, Jobs: newJobViews(jobs), ActiveJobs: activeJobs(jobs)}
+	if text != "" {
+		result, err := h.app.Query.SearchAllGames.Handle(r.Context(), query.SearchAllGames{Text: text, Limit: searchGroupLimit})
+		if err != nil {
+			h.catalogFail(w, r, err, http.StatusBadGateway, data)
+			return
+		}
+		for _, group := range result.Platforms {
+			data.Groups = append(data.Groups, searchGroupView{Platform: group.Platform, Games: newGameViews(group.Games)})
+			data.FailedSources = append(data.FailedSources, group.FailedSources...)
+		}
+	}
+	h.catalogRender(w, http.StatusOK, data)
 }
 
 func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
@@ -399,16 +431,24 @@ func compatibilityLabel(compatible *bool) string {
 
 // newGameView turns a catalog game into the view the pages render.
 func newGameView(g rom.Game) gameView {
+	var labels []string
+	var compatible *bool
+	if platform, ok := rom.PlatformBySlug(g.Platform); ok {
+		result := rom.KnulliCompatibility(g, platform)
+		labels, compatible = result.Labels, &result.Compatible
+	}
 	return gameView{
-		ID:       g.ID,
-		Title:    g.Title,
-		Region:   g.Region,
-		Size:     g.Size,
-		Cover:    g.Cover,
-		Source:   g.Source,
-		Platform: g.Platform,
-		PageURL:  g.PageURL,
-		Files:    g.Files,
+		Labels:     labels,
+		Compatible: compatible,
+		ID:         g.ID,
+		Title:      g.Title,
+		Region:     g.Region,
+		Size:       g.Size,
+		Cover:      g.Cover,
+		Source:     g.Source,
+		Platform:   g.Platform,
+		PageURL:    g.PageURL,
+		Files:      g.Files,
 	}
 }
 

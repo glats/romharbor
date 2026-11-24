@@ -149,6 +149,7 @@ func TestDlArchiveConcurrentSearchesShareOneFailedFetch(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
+		time.Sleep(200 * time.Millisecond)
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer server.Close()

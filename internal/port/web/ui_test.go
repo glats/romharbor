@@ -284,7 +284,7 @@ func TestCatalogPagesRenderOnlyTheirOwnSections(t *testing.T) {
 	h := newUIHandler(t, nil, game)
 
 	home := uiGet(t, h, "/").Body.String()
-	assert.NotContains(t, home, `id="catalog-search"`)
+	assert.Contains(t, home, `action="/search"`)
 	assert.NotContains(t, home, `class="card"`)
 	assert.Contains(t, home, "Download ROMs, organized by platform")
 
@@ -364,4 +364,35 @@ func TestCompatibilityBadgeRendersTheCompatibleState(t *testing.T) {
 	require.NoError(t, pages.ExecuteTemplate(&body, "compatibility", data))
 
 	assert.Contains(t, body.String(), `data-badge="compatible"`)
+}
+
+func TestCompatibilityBadgesComeFromTheClassifier(t *testing.T) {
+	clean := uiGame("fixture:clean", "Clean Game (USA)")
+	clean.Files = []rom.File{{Name: "Clean Game (USA).sfc", Size: 2048}}
+	translated := uiGame("fixture:translated", "Other Game (Europe) [T+Spa1.0_Someone]")
+	translated.Files = []rom.File{{Name: "Other Game (Europe) [T+Spa1.0_Someone].sfc", Size: 2048}}
+	h := newUIHandler(t, nil, clean, translated)
+
+	body := uiGet(t, h, "/platform/snes").Body.String()
+
+	assert.Contains(t, body, `data-badge="compatible"`)
+	assert.Contains(t, body, `data-badge="incompatible"`)
+	assert.Contains(t, body, `data-badge="translation"`)
+	assert.Contains(t, body, `data-badge="pal"`)
+}
+
+func TestTheGlobalSearchGroupsTheMatchesByPlatform(t *testing.T) {
+	h := newUIHandler(t, nil, uiGame("fixture:one", "Mario World"), uiGame("fixture:two", "Zelda"))
+
+	empty := uiGet(t, h, "/search")
+	assert.Equal(t, http.StatusOK, empty.Code)
+	assert.NotContains(t, empty.Body.String(), `class="card"`)
+
+	found := uiGet(t, h, "/search?q=mario").Body.String()
+	assert.Contains(t, found, "Mario World")
+	assert.NotContains(t, found, "Zelda")
+	assert.Contains(t, found, `href="/platform/snes?q=mario"`)
+
+	none := uiGet(t, h, "/search?q=nothing").Body.String()
+	assert.Contains(t, none, "No games matched.")
 }

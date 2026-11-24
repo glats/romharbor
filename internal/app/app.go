@@ -26,6 +26,7 @@ type Query struct {
 	ListPlatforms       decorator.QueryHandler[query.ListPlatforms, []rom.PlatformCount]
 	BrowsePlatformGames decorator.QueryHandler[query.BrowsePlatformGames, rom.GamePage]
 	SearchGames         decorator.QueryHandler[query.SearchGames, rom.GamePage]
+	SearchAllGames      decorator.QueryHandler[query.SearchAllGames, query.SearchAllGamesResult]
 	ObtainGame          decorator.QueryHandler[query.ObtainGame, rom.Game]
 	ListJobs            decorator.QueryHandler[query.ListJobs, []rom.Job]
 	ObtainJob           decorator.QueryHandler[query.ObtainJob, rom.Job]

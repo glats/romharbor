@@ -72,3 +72,20 @@ func TestBrowsePlatformGamesRejectsUnknownPlatforms(t *testing.T) {
 
 	assert.ErrorIs(t, err, rom.ErrUnknownPlatform)
 }
+
+func TestBrowsePlatformGamesKeepsTheCompatibleVariantOfATitle(t *testing.T) {
+	handler := NewBrowsePlatformGamesHandler(newListings(
+		rom.Game{ID: "1", Platform: "n64", Title: "Banjo-Kazooie (E) (M3) [T+Spa1.1_PacoChan]", Files: []rom.File{{Name: "Banjo-Kazooie (E) (M3) [T+Spa1.1_PacoChan].z64"}}},
+		rom.Game{ID: "2", Platform: "n64", Title: "Banjo-Kazooie (USA)", Files: []rom.File{{Name: "Banjo-Kazooie (USA).z64"}}},
+		rom.Game{ID: "3", Platform: "n64", Title: "Only Translated (E) [T+Spa1.0_Someone]", Files: []rom.File{{Name: "Only Translated (E) [T+Spa1.0_Someone].z64"}}},
+	), metric.NoOp{})
+
+	page, err := handler.Handle(context.Background(), BrowsePlatformGames{Platform: "n64", Limit: 10})
+
+	require.NoError(t, err)
+	var ids []string
+	for _, g := range page.Games {
+		ids = append(ids, g.ID)
+	}
+	assert.ElementsMatch(t, []string{"2", "3"}, ids)
+}

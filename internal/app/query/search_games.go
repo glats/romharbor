@@ -43,5 +43,5 @@ func (q searchGamesQuery) Handle(ctx context.Context, query SearchGames) (rom.Ga
 	}
 	games := rom.FilterByTitle(rom.MergeGames(listing.Games, found.Games), query.Text)
 	failed := append(append([]string(nil), listing.FailedSources...), found.FailedSources...)
-	return rom.GamePage{Games: rom.Page(games, query.Offset, query.Limit), FailedSources: failed}, nil
+	return rom.GamePage{Games: rom.Page(preferCompatible(games, query.Platform), query.Offset, query.Limit), FailedSources: failed}, nil
 }
