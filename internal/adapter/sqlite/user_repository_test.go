@@ -175,6 +175,27 @@ func TestListIsOrderedByNameThenID(t *testing.T) {
 	assert.Equal(t, []user.User{ada, alan, twin, grace}, got)
 }
 
+func TestTheUserListReturnsTheLatestRowsOnly(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepository(t)
+	for i := range 501 {
+		require.NoError(t, repo.Create(ctx, user.New(
+			user.WithID(fmt.Sprintf("id-%03d", i)),
+			user.WithName(fmt.Sprintf("User %03d", i)),
+			user.WithEmail(fmt.Sprintf("user%03d@example.com", i)),
+		)))
+	}
+
+	got, err := repo.List(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, got, 500)
+	assert.Equal(t, "User 000", got[0].Name(), "the order by name is kept")
+	assert.Equal(t, "User 499", got[499].Name())
+	assert.Equal(t, "id-000", got[0].ID())
+	assert.Equal(t, "user000@example.com", got[0].Email())
+}
+
 func TestEveryMethodHonorsTheContext(t *testing.T) {
 	repo := newRepository(t)
 	seed(t, repo, ada)

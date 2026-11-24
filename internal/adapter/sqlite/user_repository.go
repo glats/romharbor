@@ -97,7 +97,11 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (user.Us
 }
 
 func (r *UserRepository) List(ctx context.Context) ([]user.User, error) {
-	rows, err := models.Users.Query(sm.OrderBy(models.Users.Columns.Name), sm.OrderBy(models.Users.Columns.ID)).All(ctx, r.db)
+	rows, err := models.Users.Query(
+		sm.OrderBy(models.Users.Columns.Name),
+		sm.OrderBy(models.Users.Columns.ID),
+		sm.Limit(maxListRows),
+	).All(ctx, r.db)
 	if err != nil {
 		return nil, fmt.Errorf("list users: %w", err)
 	}

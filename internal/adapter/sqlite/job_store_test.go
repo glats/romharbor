@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -365,6 +366,43 @@ func TestPruneDropsOldFinishedJobsOnly(t *testing.T) {
 		games = append(games, job.GameID)
 	}
 	assert.Equal(t, []string{"queued", "recent"}, games, "newest first")
+}
+
+func TestTheJobListReturnsTheLatestRowsOnly(t *testing.T) {
+	store, _, _ := newJobStore(t)
+	ctx := context.Background()
+	for i := range 501 {
+		mustEnqueue(t, store, fmt.Sprintf("game-%03d", i))
+	}
+
+	jobs, err := store.List(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, jobs, 500)
+	assert.Equal(t, "game-500", jobs[0].GameID, "newest first")
+	assert.Equal(t, "game-001", jobs[499].GameID, "the oldest row of the page is the last one")
+}
+
+func TestListReturnsTheJobFields(t *testing.T) {
+	store, clk, _ := newJobStore(t)
+	ctx := context.Background()
+	queued := mustEnqueue(t, store, "a")
+	mustEnqueue(t, store, "b")
+
+	jobs, err := store.List(ctx)
+
+	require.NoError(t, err)
+	require.Len(t, jobs, 2)
+	assert.Equal(t, "b", jobs[0].GameID, "newest first")
+	assert.Equal(t, "Title b", jobs[0].Title)
+	assert.Equal(t, rom.JobQueued, jobs[0].Status)
+	assert.EqualValues(t, 1000, jobs[0].Total)
+	assert.Equal(t, clk.Now(), jobs[0].Started)
+	assert.Equal(t, queued, jobs[1])
+}
+
+func TestTheEnqueueAttemptsKeepTheirValue(t *testing.T) {
+	assert.Equal(t, 3, enqueueAttempts)
 }
 
 func TestGetRejectsUnknownAndMalformedIDs(t *testing.T) {

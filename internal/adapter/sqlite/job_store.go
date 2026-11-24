@@ -18,6 +18,11 @@ import (
 	"app.ddd/internal/domain/rom"
 )
 
+const (
+	enqueueAttempts = 3
+	maxListRows     = 500
+)
+
 type JobStore struct {
 	db  bob.Executor
 	Now func() time.Time
@@ -47,7 +52,7 @@ func (s *JobStore) Enqueue(ctx context.Context, req rom.InstallRequest) (rom.Job
 	at := s.Now()
 	now := at.UnixMilli()
 
-	for range 3 {
+	for range enqueueAttempts {
 		var id int64
 		err := s.scanOne(ctx, []any{&id},
 			`INSERT INTO jobs (game_id, title, status, total, request, run_at, started)
@@ -240,7 +245,7 @@ func (s *JobStore) Get(ctx context.Context, id string) (rom.Job, bool, error) {
 }
 
 func (s *JobStore) List(ctx context.Context) ([]rom.Job, error) {
-	rows, err := models.Jobs.Query(sm.OrderBy(models.Jobs.Columns.ID).Desc()).All(ctx, s.db)
+	rows, err := models.Jobs.Query(sm.OrderBy(models.Jobs.Columns.ID).Desc(), sm.Limit(maxListRows)).All(ctx, s.db)
 	if err != nil {
 		return nil, fmt.Errorf("list jobs: %w", err)
 	}

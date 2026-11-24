@@ -122,7 +122,11 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 		defer cancel()
 		return downloads.Shutdown(shutdownCtx)
 	}
-	defer func() { _ = stopDownloads() }()
+	defer func() {
+		if err := stopDownloads(); err != nil {
+			log.Error().Err(err).Msg("stop the download queue")
+		}
+	}()
 	log.Info().Strs("sources", sourceNames(sources)).Msg("ROM sources ready")
 
 	listener, err := net.Listen("tcp", cfg.HTTP.Addr)
