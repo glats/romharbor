@@ -122,10 +122,13 @@ stops both. For a standalone executable, run `go build -o romharbor ./cmd/web` a
 | `ROM_SOURCES` | `archive.org` | Comma-separated enabled sources, in priority order |
 | `ROM_CACHE_TTL` | `24h` | Listing cache freshness |
 | `DATABASE_PATH` | `./data/app.db` | SQLite database |
+| `JOBS_MAX_ATTEMPTS` | `3` | Attempts per download before it fails (worker) |
+| `JOBS_RETRY_DELAY` | `30s` | Wait before the first retry; later retries wait four times as long (worker) |
+| `JOBS_RETENTION` | `720h` | How long finished downloads stay listed (worker) |
+| `JOBS_TIMEOUT` | `6h` | Longest a single download may run (worker) |
 
 The flags `--listen`, `--library`, `--cache`, `--sources`, and `--ttl` override the corresponding
-environment settings for one run. The download worker reads only `DATABASE_PATH` and
-`ROM_LIBRARY_PATH`, and its `--database` and `--library` flags override them.
+environment settings for one run. The download worker reads `DATABASE_PATH`, `ROM_LIBRARY_PATH` and the `JOBS_*` settings, and its `--database` and `--library` flags override them.
 Container storage is configured under `/data`.
 See [`env.dist`](env.dist) for logging and other application settings.
 

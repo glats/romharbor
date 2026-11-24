@@ -61,6 +61,22 @@ func parseFlags(args []string, cfg config.Config, out io.Writer) (config.Config,
 	return cfg, nil
 }
 
+func policyFrom(jobs config.JobsConfig) romdownloads.Policy {
+	policy := romdownloads.DefaultPolicy()
+	policy.MaxAttempts = jobs.MaxAttempts
+	policy.Retention = jobs.Retention
+	policy.Timeout = jobs.Timeout
+	policy.Backoff = func(attempt int) time.Duration {
+		if attempt <= 1 {
+			return jobs.RetryDelay
+		}
+
+		return 4 * jobs.RetryDelay
+	}
+
+	return policy
+}
+
 // run claims the queued downloads and runs them until the context is done.
 func run(ctx context.Context, cfg config.Config) error {
 	if err := ctx.Err(); err != nil {
@@ -88,7 +104,7 @@ func run(ctx context.Context, cfg config.Config) error {
 		Producer:    jobs,
 		Worker:      jobs,
 		Maintenance: jobs,
-	}, romdownloads.DefaultPolicy())
+	}, policyFrom(cfg.Jobs))
 	if err := runner.Resume(ctx); err != nil {
 		return stopped(ctx, err)
 	}

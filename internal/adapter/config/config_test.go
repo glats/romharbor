@@ -79,3 +79,46 @@ func TestGetReturnsTheParsedConfiguration(t *testing.T) {
 	assert.Equal(t, ":7000", cfg.HTTP.Addr)
 	assert.Equal(t, "./data/app.db", cfg.Database.Path)
 }
+
+func TestParseUsesTheJobDefaults(t *testing.T) {
+	unsetEnv(t, "JOBS_MAX_ATTEMPTS", "JOBS_RETRY_DELAY", "JOBS_RETENTION", "JOBS_TIMEOUT")
+
+	cfg, err := Parse()
+
+	require.NoError(t, err)
+	assert.Equal(t, 3, cfg.Jobs.MaxAttempts)
+	assert.Equal(t, 30*time.Second, cfg.Jobs.RetryDelay)
+	assert.Equal(t, 30*24*time.Hour, cfg.Jobs.Retention)
+	assert.Equal(t, 6*time.Hour, cfg.Jobs.Timeout)
+}
+
+func TestParseReadsTheJobSettings(t *testing.T) {
+	t.Setenv("JOBS_MAX_ATTEMPTS", "5")
+	t.Setenv("JOBS_RETRY_DELAY", "1m")
+	t.Setenv("JOBS_RETENTION", "48h")
+	t.Setenv("JOBS_TIMEOUT", "2h")
+
+	cfg, err := Parse()
+
+	require.NoError(t, err)
+	assert.Equal(t, 5, cfg.Jobs.MaxAttempts)
+	assert.Equal(t, time.Minute, cfg.Jobs.RetryDelay)
+	assert.Equal(t, 48*time.Hour, cfg.Jobs.Retention)
+	assert.Equal(t, 2*time.Hour, cfg.Jobs.Timeout)
+}
+
+func TestParseRejectsJobSettingsThatCannotWork(t *testing.T) {
+	tests := map[string]string{
+		"JOBS_MAX_ATTEMPTS": "0",
+		"JOBS_RETRY_DELAY":  "0s",
+		"JOBS_RETENTION":    "-1h",
+		"JOBS_TIMEOUT":      "0s",
+	}
+	for key, value := range tests {
+		t.Run(key, func(t *testing.T) {
+			t.Setenv(key, value)
+			_, err := Parse()
+			assert.ErrorContains(t, err, key)
+		})
+	}
+}

@@ -51,6 +51,7 @@ func workerConfig(t *testing.T) config.Config {
 	return config.Config{
 		Database: config.DatabaseConfig{Path: filepath.Join(t.TempDir(), "app.db")},
 		ROM:      config.ROMConfig{Library: filepath.Join(t.TempDir(), "roms")},
+		Jobs:     config.JobsConfig{MaxAttempts: 3, RetryDelay: time.Millisecond, Retention: time.Hour, Timeout: time.Minute},
 	}
 }
 
@@ -179,4 +180,40 @@ func TestParseFlagsRejectsAnUnknownFlag(t *testing.T) {
 	_, err := parseFlags([]string{"--no-such-flag"}, config.Config{}, os.Stderr)
 
 	assert.Error(t, err)
+}
+
+func TestThePolicyComesFromTheJobSettings(t *testing.T) {
+	policy := policyFrom(config.JobsConfig{
+		MaxAttempts: 5,
+		RetryDelay:  time.Minute,
+		Retention:   48 * time.Hour,
+		Timeout:     2 * time.Hour,
+	})
+
+	assert.Equal(t, 5, policy.MaxAttempts)
+	assert.Equal(t, 48*time.Hour, policy.Retention)
+	assert.Equal(t, 2*time.Hour, policy.Timeout)
+	assert.Equal(t, time.Minute, policy.Backoff(1))
+	assert.Equal(t, 4*time.Minute, policy.Backoff(2))
+	assert.Equal(t, 4*time.Minute, policy.Backoff(3))
+}
+
+func TestTheDefaultJobSettingsBuildTheDefaultPolicy(t *testing.T) {
+	fixed := romdownloads.DefaultPolicy()
+	policy := policyFrom(config.JobsConfig{
+		MaxAttempts: 3,
+		RetryDelay:  30 * time.Second,
+		Retention:   30 * 24 * time.Hour,
+		Timeout:     6 * time.Hour,
+	})
+
+	assert.Equal(t, fixed.Workers, policy.Workers)
+	assert.Equal(t, fixed.Lease, policy.Lease)
+	assert.Equal(t, fixed.Poll, policy.Poll)
+	assert.Equal(t, fixed.MaxAttempts, policy.MaxAttempts)
+	assert.Equal(t, fixed.Retention, policy.Retention)
+	assert.Equal(t, fixed.Timeout, policy.Timeout)
+	for attempt := 1; attempt <= 3; attempt++ {
+		assert.Equal(t, fixed.Backoff(attempt), policy.Backoff(attempt))
+	}
 }

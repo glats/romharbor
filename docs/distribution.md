@@ -117,7 +117,9 @@ not a directory under `/home`. External mounts must be available when the servic
 Enabling the module starts two units that share the user, group, storage paths and database:
 `romharbor.service` serves the web interface and `romharbor-worker.service` claims the queued
 downloads and runs them. Neither unit depends on the other, so either can be restarted on its own.
-The worker needs no HTTP address and no ROM source list.
+The worker needs no HTTP address and no ROM source list. Its retry and retention policy comes from
+`JOBS_MAX_ATTEMPTS`, `JOBS_RETRY_DELAY`, `JOBS_RETENTION` and `JOBS_TIMEOUT` (see the README table);
+set them for the NixOS unit with `systemd.services.romharbor-worker.environment`.
 
 No firewall port, domain or authentication provider is configured automatically. Keep the default
 loopback binding unless a trusted authenticated reverse proxy is configured. The inherited `/users`
