@@ -9,8 +9,10 @@ import (
 	"log/slog"
 	"net/url"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
+	"strings"
 
 	"app.ddd/internal/adapter/romsource/archiveorgapi"
 	"app.ddd/internal/domain/rom"
@@ -158,6 +160,20 @@ func (a *ArchiveOrg) Search(ctx context.Context, q rom.Query) ([]rom.Game, error
 	games = rom.FilterByTitle(games, q.Text)
 	rom.SortByTitle(games)
 	return rom.Page(games, q.Offset, q.Limit), nil
+}
+
+func (a *ArchiveOrg) ResolvePlatform(_ context.Context, id string) (string, bool, error) {
+	rest, ok := strings.CutPrefix(id, "archive.org:")
+	if !ok {
+		return "", false, nil
+	}
+	item, _, _ := strings.Cut(rest, "/")
+	for slug, items := range a.Sets {
+		if slices.Contains(items, item) {
+			return slug, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.Game, error) {

@@ -25,6 +25,8 @@ type Listings struct {
 
 	mu       sync.RWMutex
 	listings map[string]rom.Listing
+
+	flights singleflight[rom.GamePage]
 }
 
 // Option changes how Listings is built.
@@ -97,18 +99,53 @@ func (l *Listings) Game(ctx context.Context, id string) (rom.Game, bool, error) 
 	if game, ok := l.sources.resolve(id); ok {
 		return game, true, nil
 	}
+	platform, ok, err := l.sources.resolvePlatform(ctx, id)
+	if err != nil {
+		return rom.Game{}, false, err
+	}
+	if ok {
+		listing, err := l.listing(ctx, platform)
+		if err != nil {
+			return rom.Game{}, false, err
+		}
+		if game, found := gameOfID(listing.Games, id); found {
+			return game, true, nil
+		}
+	}
+	if game, ok := l.knownGame(id); ok {
+		return game, true, nil
+	}
+	return rom.Game{}, false, nil
+}
+
+func (l *Listings) knownGame(id string) (rom.Game, bool) {
 	for _, p := range rom.Platforms() {
-		listing, err := l.listing(ctx, p.Slug)
+		l.mu.RLock()
+		listing, ok := l.listings[p.Slug]
+		l.mu.RUnlock()
+		if ok {
+			if game, found := gameOfID(listing.Games, id); found {
+				return game, true
+			}
+		}
+		stored, err := l.cache.Load(p.Slug)
 		if err != nil {
 			continue
 		}
-		for _, g := range listing.Games {
-			if g.ID == id {
-				return g, true, nil
-			}
+		if game, found := gameOfID(stored.Games, id); found {
+			return game, true
 		}
 	}
-	return rom.Game{}, false, nil
+	return rom.Game{}, false
+}
+
+func gameOfID(games []rom.Game, id string) (rom.Game, bool) {
+	for _, game := range games {
+		if game.ID == id {
+			return game, true
+		}
+	}
+	return rom.Game{}, false
 }
 
 func (l *Listings) listing(ctx context.Context, platform string) (rom.GamePage, error) {
@@ -121,6 +158,15 @@ func (l *Listings) listing(ctx context.Context, platform string) (rom.GamePage, 
 	if ok && l.fresh(cached.Fetched) {
 		return rom.GamePage{Games: cached.Games}, nil
 	}
+	return l.flights.do(ctx, platform, func(ctx context.Context) (rom.GamePage, error) {
+		return l.refresh(ctx, platform)
+	})
+}
+
+func (l *Listings) refresh(ctx context.Context, platform string) (rom.GamePage, error) {
+	l.mu.RLock()
+	cached, ok := l.listings[platform]
+	l.mu.RUnlock()
 	disk, err := l.cache.Load(platform)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {

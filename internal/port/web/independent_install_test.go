@@ -30,6 +30,10 @@ func (s payloadSource) Search(context.Context, rom.Query) ([]rom.Game, error) {
 	return []rom.Game{{ID: "payload", Platform: "snes", Title: "Payload", Files: []rom.File{{Name: "Payload.sfc", URL: s.url, Size: 3}}}}, nil
 }
 
+func (payloadSource) ResolvePlatform(_ context.Context, id string) (string, bool, error) {
+	return "snes", id == "payload", nil
+}
+
 func TestIndependentRequestCancellationInstall(t *testing.T) {
 	payload := []byte{0, 1, 2}
 	release := make(chan struct{})

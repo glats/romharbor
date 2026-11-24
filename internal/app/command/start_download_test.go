@@ -28,6 +28,15 @@ func (f fixtureSource) Search(_ context.Context, _ rom.Query) ([]rom.Game, error
 	return f.games, nil
 }
 
+func (f fixtureSource) ResolvePlatform(_ context.Context, id string) (string, bool, error) {
+	for _, g := range f.games {
+		if g.ID == id {
+			return g.Platform, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 type noCache struct{}
 
 func (noCache) Load(string) (rom.Listing, error) { return rom.Listing{}, context.Canceled }
