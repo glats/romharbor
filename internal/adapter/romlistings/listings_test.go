@@ -210,3 +210,27 @@ func TestGameIsResolvedByItsSourceWithoutAPriorSearch(t *testing.T) {
 		t.Error("an ID no source resolves was found")
 	}
 }
+
+func TestListingFreshnessFollowsTheInjectedClock(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	source := &verifierSource{name: "good"}
+	listings := NewListings([]adapter.RomSource{source}, &memoryCache{}, time.Hour, WithClock(func() time.Time { return now }))
+	fetch := func() {
+		t.Helper()
+		if _, err := listings.ObtainPlatformListing(context.Background(), "snes"); err != nil {
+			t.Fatalf("ObtainPlatformListing() error = %v", err)
+		}
+	}
+
+	fetch()
+	now = now.Add(time.Hour - time.Nanosecond)
+	fetch()
+	if got := source.calls.Load(); got != 1 {
+		t.Fatalf("source asked %d times before the TTL elapsed, want 1", got)
+	}
+	now = now.Add(time.Nanosecond)
+	fetch()
+	if got := source.calls.Load(); got != 2 {
+		t.Fatalf("source asked %d times once the TTL elapsed, want 2", got)
+	}
+}

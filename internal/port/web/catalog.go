@@ -68,16 +68,7 @@ func (h *Handler) mountCatalog(mux *http.ServeMux) {
 }
 
 func (h *Handler) catalogHome(w http.ResponseWriter, r *http.Request) {
-	counts, err := h.app.Query.ListPlatforms.Handle(r.Context(), query.ListPlatforms{})
-	if err != nil {
-		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: "ROM catalog"})
-		return
-	}
-	data := catalogPageData{Title: "ROM catalog", Platforms: rom.Platforms()}
-	for _, p := range counts {
-		data.Total += p.Count
-	}
-	h.catalogRender(w, http.StatusOK, data)
+	h.catalogRender(w, http.StatusOK, catalogPageData{Title: "ROM catalog", Platforms: rom.Platforms()})
 }
 
 func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {

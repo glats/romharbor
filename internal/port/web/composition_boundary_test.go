@@ -35,7 +35,7 @@ func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
 	require.NoError(t, cache.Store("snes", rom.Listing{
 		Fetched: time.Now(), Games: []rom.Game{game},
 	}))
-	listings := romlistings.NewListings(nil, cache, 0)
+	listings := romlistings.NewListings(nil, cache, time.Hour)
 	_, err := listings.ObtainPlatformListing(ctx, "snes")
 	require.NoError(t, err)
 	require.NoError(t, cache.Store("snes", rom.Listing{Fetched: time.Now()}))
@@ -70,7 +70,7 @@ func TestSharedCompositionServesUsersAndCachedCatalog(t *testing.T) {
 	repo.On("List", ctx).Return([]user.User{}, nil)
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
 	jobs := newJobs(t)
-	listings := romlistings.NewListings(nil, cache, 0)
+	listings := romlistings.NewListings(nil, cache, time.Hour)
 	downloads := newDownloads(t, nil, jobs, quiet)
 	application := service.NewApp(repo, listings, downloads, jobs, nil)
 	t.Cleanup(func() { require.NoError(t, downloads.Shutdown(ctx)) })

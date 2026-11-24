@@ -13,30 +13,42 @@ import (
 	"app.ddd/internal/domain/rom"
 )
 
-const DefaultCacheTTL = 24 * time.Hour
-
+// Listings serves the games of the configured sources and keeps what they
+// answered: each platform listing is fresh for ttl, stays on disk, and is
+// served stale when the sources fail.
 type Listings struct {
-	registry *registry
-	cache    adapter.RomListingCache
-	ttl      time.Duration
-	logger   *slog.Logger
+	sources *sourceListings
+	cache   adapter.RomListingCache
+	ttl     time.Duration
+	now     func() time.Time
+	logger  *slog.Logger
 
 	mu       sync.RWMutex
 	listings map[string]rom.Listing
 }
 
-func NewListings(sources []adapter.RomSource, cache adapter.RomListingCache, ttl time.Duration) *Listings {
-	if ttl <= 0 {
-		ttl = DefaultCacheTTL
-	}
+// Option changes how Listings is built.
+type Option func(*Listings)
+
+// WithClock sets the clock that decides whether a cached listing is fresh.
+func WithClock(now func() time.Time) Option {
+	return func(l *Listings) { l.now = now }
+}
+
+func NewListings(sources []adapter.RomSource, cache adapter.RomListingCache, ttl time.Duration, options ...Option) *Listings {
 	logger := slog.Default()
-	return &Listings{
-		registry: newRegistry(sources, DefaultSourceTimeout, logger),
+	l := &Listings{
+		sources:  &sourceListings{registry: newRegistry(sources, DefaultSourceTimeout, logger)},
 		cache:    cache,
 		ttl:      ttl,
+		now:      time.Now,
 		logger:   logger,
 		listings: map[string]rom.Listing{},
 	}
+	for _, option := range options {
+		option(l)
+	}
+	return l
 }
 
 func (l *Listings) PlatformCounts(ctx context.Context) ([]rom.PlatformCount, error) {
@@ -70,14 +82,7 @@ func (l *Listings) ObtainPlatformListing(ctx context.Context, platform string) (
 // SearchSources asks the sources that can search for the text. Games found
 // this way are remembered so they can be resolved by ID later.
 func (l *Listings) SearchSources(ctx context.Context, text, platform string) (rom.GamePage, error) {
-	if _, ok := rom.PlatformBySlug(platform); platform != "" && !ok {
-		return rom.GamePage{}, rom.ErrUnknownPlatform
-	}
-	found, err := l.registry.search(ctx, rom.Query{Platform: platform, Text: text})
-	for i := range found.Games {
-		withCover(&found.Games[i])
-	}
-	return found, err
+	return l.sources.search(ctx, text, platform)
 }
 
 func (l *Listings) Count(ctx context.Context, platform string) (int, error) {
@@ -89,13 +94,8 @@ func (l *Listings) Count(ctx context.Context, platform string) (int, error) {
 }
 
 func (l *Listings) Game(ctx context.Context, id string) (rom.Game, bool, error) {
-	for _, source := range l.registry.sources {
-		if resolver, ok := source.(adapter.RomGameResolver); ok {
-			if game, found := resolver.ResolveGame(id); found {
-				withCover(&game)
-				return game, true, nil
-			}
-		}
+	if game, ok := l.sources.resolve(id); ok {
+		return game, true, nil
 	}
 	for _, p := range rom.Platforms() {
 		listing, err := l.listing(ctx, p.Slug)
@@ -118,7 +118,7 @@ func (l *Listings) listing(ctx context.Context, platform string) (rom.GamePage, 
 	l.mu.RLock()
 	cached, ok := l.listings[platform]
 	l.mu.RUnlock()
-	if ok && time.Since(cached.Fetched) < l.ttl {
+	if ok && l.fresh(cached.Fetched) {
 		return rom.GamePage{Games: cached.Games}, nil
 	}
 	disk, err := l.cache.Load(platform)
@@ -126,24 +126,19 @@ func (l *Listings) listing(ctx context.Context, platform string) (rom.GamePage, 
 		if !errors.Is(err, fs.ErrNotExist) {
 			l.logger.Error("listing cache entry unusable", "platform", platform, "error", err)
 		}
-	} else if time.Since(disk.Fetched) < l.ttl {
+	} else if l.fresh(disk.Fetched) {
 		l.remember(platform, disk)
 		return rom.GamePage{Games: disk.Games}, nil
 	}
 
-	page, err := l.registry.search(ctx, rom.Query{Platform: platform})
+	page, err := l.sources.fetch(ctx, platform)
 	if err != nil {
 		if ok {
 			return rom.GamePage{Games: cached.Games, FailedSources: page.FailedSources}, nil
 		}
 		return page, err
 	}
-	fresh := rom.Listing{Fetched: time.Now(), Games: page.Games}
-	if p, ok := rom.PlatformBySlug(platform); ok {
-		for i := range fresh.Games {
-			fresh.Games[i].Cover = p.CoverURL(fresh.Games[i].Title)
-		}
-	}
+	fresh := rom.Listing{Fetched: l.now(), Games: page.Games}
 	if len(page.FailedSources) == 0 {
 		l.remember(platform, fresh)
 		if err := l.cache.Store(platform, fresh); err != nil {
@@ -173,8 +168,6 @@ func (l *Listings) remember(platform string, listing rom.Listing) {
 	l.mu.Unlock()
 }
 
-func withCover(game *rom.Game) {
-	if p, ok := rom.PlatformBySlug(game.Platform); ok {
-		game.Cover = p.CoverURL(game.Title)
-	}
+func (l *Listings) fresh(fetched time.Time) bool {
+	return l.now().Sub(fetched) < l.ttl
 }

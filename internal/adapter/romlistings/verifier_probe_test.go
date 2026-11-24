@@ -41,7 +41,7 @@ func TestVerifierPartialPriority(t *testing.T) {
 	bad := &verifierSource{name: "timeout", delay: time.Second}
 	c := &verifierCache{}
 	l := NewListings([]adapter.RomSource{a, b, bad}, c, time.Hour)
-	l.registry.timeout = 30 * time.Millisecond
+	l.sources.registry.timeout = 30 * time.Millisecond
 	for range 2 {
 		p, e := l.ObtainPlatformListing(context.Background(), "snes")
 		if e != nil || len(p.Games) != 1 || p.Games[0].Title != "first" || len(p.FailedSources) != 1 || p.FailedSources[0] != "timeout" {
