@@ -56,7 +56,7 @@ func (r *recordingMetrics) Inc(key string, _ int) {
 
 type downloadFixture struct {
 	listings  *romlistings.Listings
-	downloads *romdownloads.Downloads
+	downloads *romdownloads.Enqueuer
 	jobs      *sqlite.JobStore
 	library   *blockingLibrary
 }
@@ -70,13 +70,16 @@ func newDownloadFixture(t *testing.T, games ...rom.Game) downloadFixture {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	jobs := sqlite.NewJobStore(db)
-	downloads := romdownloads.NewDownloads(library, romdownloads.JobPorts{
+	policy := romdownloads.DefaultPolicy()
+	policy.Poll = 5 * time.Millisecond
+	downloads := romdownloads.NewEnqueuer(jobs)
+	runner := romdownloads.NewRunner(library, romdownloads.JobPorts{
 		Producer:    jobs,
 		Worker:      jobs,
 		Maintenance: jobs,
-	}, romdownloads.DefaultPolicy())
-	require.NoError(t, downloads.Resume(context.Background()))
-	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
+	}, policy)
+	require.NoError(t, runner.Resume(context.Background()))
+	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
 	return downloadFixture{
 		listings:  romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour),
 		downloads: downloads,

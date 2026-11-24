@@ -71,10 +71,17 @@ tasks:
       - test -f .env || cp env.dist .env
 
   dev:
-    desc: Run the web application
+    desc: Run the web server and the download worker
     deps: [dev-bootstrap]
     cmds:
-      - go run ./cmd/web
+      - |
+        set -eu
+        go run ./cmd/web &
+        web_pid=$!
+        go run ./cmd/worker &
+        worker_pid=$!
+        trap 'kill "$web_pid" "$worker_pid" 2>/dev/null || true' EXIT INT TERM
+        wait "$web_pid"
 
   coverage:
     desc: Display coverage report

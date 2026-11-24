@@ -25,19 +25,25 @@ func newJobs(t *testing.T) *sqlite.JobStore {
 	return sqlite.NewJobStore(db)
 }
 
-func newDownloads(t *testing.T, library adapter.RomLibrary, jobs *sqlite.JobStore, logger *slog.Logger) *romdownloads.Downloads {
+func newDownloads(t *testing.T, library adapter.RomLibrary, jobs *sqlite.JobStore, logger *slog.Logger) *romdownloads.Enqueuer {
+	t.Helper()
+	downloads, _ := newDownloadsWithRunner(t, library, jobs, logger)
+	return downloads
+}
+
+func newDownloadsWithRunner(t *testing.T, library adapter.RomLibrary, jobs *sqlite.JobStore, logger *slog.Logger) (*romdownloads.Enqueuer, *romdownloads.Runner) {
 	t.Helper()
 	policy := romdownloads.DefaultPolicy()
 	policy.Poll = 5 * time.Millisecond
 	policy.Backoff = func(int) time.Duration { return time.Millisecond }
-	downloads := romdownloads.NewDownloads(library, romdownloads.JobPorts{
+	runner := romdownloads.NewRunner(library, romdownloads.JobPorts{
 		Producer:    jobs,
 		Worker:      jobs,
 		Maintenance: jobs,
 	}, policy, romdownloads.WithLogger(logger))
-	require.NoError(t, downloads.Resume(context.Background()))
-	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
-	return downloads
+	require.NoError(t, runner.Resume(context.Background()))
+	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
+	return romdownloads.NewEnqueuer(jobs), runner
 }
 
 func listJobs(t *testing.T, jobs *sqlite.JobStore) []rom.Job {

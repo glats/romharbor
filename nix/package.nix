@@ -7,7 +7,10 @@ buildGo125Module {
   version = "0-unstable";
   src = lib.cleanSource ../.;
   vendorHash = "sha256-Xc/TBVIL23nR+qqGOI/1WxlhvHn8gj48nVDhQhIKwx8=";
-  subPackages = [ "cmd/web" ];
+  subPackages = [
+    "cmd/web"
+    "cmd/worker"
+  ];
   env.CGO_ENABLED = "1";
 
   checkPhase = ''
@@ -18,6 +21,7 @@ buildGo125Module {
 
   postInstall = ''
     mv "$out/bin/web" "$out/bin/romharbor"
+    mv "$out/bin/worker" "$out/bin/romharbor-worker"
   '';
 
   meta = {

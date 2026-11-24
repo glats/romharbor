@@ -65,7 +65,7 @@ func TestVerifierRunnerLost(t *testing.T) {
 			return rom.InstallResult{}, errors.New("worker did not stop")
 		}
 	}}
-	d := NewDownloads(l, JobPorts{Worker: q}, DefaultPolicy())
+	d := NewRunner(l, JobPorts{Worker: q}, DefaultPolicy())
 	defer d.cancel()
 	d.policy.ProgressEvery = time.Millisecond
 	d.run(verifierClaim())
@@ -77,7 +77,7 @@ func TestVerifierRunnerLost(t *testing.T) {
 func TestVerifierRetryPolicy(t *testing.T) {
 	for _, permanent := range []bool{false, true} {
 		q := &verifierQueue{}
-		d := NewDownloads(nil, JobPorts{Worker: q}, DefaultPolicy())
+		d := NewRunner(nil, JobPorts{Worker: q}, DefaultPolicy())
 		now := time.Unix(100, 0)
 		d.now = func() time.Time { return now }
 		cause := errors.New("transient")

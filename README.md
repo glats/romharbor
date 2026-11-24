@@ -8,7 +8,8 @@ into a library organized by platform. Run it on your own server and keep your li
 - Browse platforms and search their game listings.
 - View game details, available files, and checksums when provided by the source.
 - Start downloads and follow their progress in the web interface. Downloads are queued in the
-  application database, run one at a time, retry failed attempts, and resume after a restart.
+  application database and run by the download worker, one at a time, retry failed attempts,
+  and resume after a restart.
 - Save games into platform folders in your library, ready for your own library manager or emulator.
 - Cache listings locally to avoid fetching them on every visit.
 
@@ -42,10 +43,18 @@ docker run -d --name romharbor --stop-timeout 35 \
   -p 127.0.0.1:8080:8080 \
   --mount type=volume,source=romharbor-data,target=/data \
   ghcr.io/glats/romharbor:0.1.0
+
+docker run -d --name romharbor-worker --stop-timeout 35 \
+  --entrypoint /app/worker \
+  --mount type=volume,source=romharbor-data,target=/data \
+  ghcr.io/glats/romharbor:0.1.0
 ```
 
 Open **http://localhost:8080** for the catalog. The named volume keeps your database, listing cache,
 and downloaded games across container replacements. Do not delete it when updating.
+
+The web container serves the interface and queues the downloads; the worker container runs them.
+Both share the same volume and the same database. Without the worker, queued downloads never start.
 
 The image includes CA certificates and runs as UID/GID `10001:10001`.
 Existing volumes or bind mounts must be writable by that identity. Pin a version or digest;
@@ -62,8 +71,9 @@ docker compose up --no-build -d
 ```
 
 Compose uses the same persistent volume and loopback-only port, with a read-only root filesystem
-and restricted container privileges. To build a local image instead, omit `ROMHARBOR_IMAGE` and run
-`docker compose up --build -d` from a checkout.
+and restricted container privileges. It starts two services from the same image: `romharbor` serves
+the web interface, and `romharbor-worker` runs the queued downloads. To build a local image instead,
+omit `ROMHARBOR_IMAGE` and run `docker compose up --build -d` from a checkout.
 
 Podman can build the Dockerfile, but its runtime behavior has not been verified.
 
@@ -81,7 +91,9 @@ Nix packages are built in CI on native x86_64 and ARM64 Linux runners; Darwin is
 For a declarative NixOS service, add `github:glats/romharbor/v0.1.0` to your flake inputs,
 import its `nixosModules.default`, and set `services.romharbor.enable = true`.
 The module provides options for the listen address, library location, cache, database, sources,
-and service identity. See the [module example and option reference](docs/distribution.md#nixos-module).
+and service identity. It starts two units: `romharbor.service` serves the web interface and
+`romharbor-worker.service` runs the queued downloads.
+See the [module example and option reference](docs/distribution.md#nixos-module).
 
 ### From source
 
@@ -96,7 +108,9 @@ make dev
 ```
 
 Open **http://localhost:8080**. `make dev-bootstrap` creates `.env` from `env.dist` without replacing
-an existing file. For a standalone executable, run `go build -o romharbor ./cmd/web`.
+an existing file. `make dev` starts the web server and the download worker together; stopping it
+stops both. For a standalone executable, run `go build -o romharbor ./cmd/web` and
+`go build -o romharbor-worker ./cmd/worker`.
 
 ## Configuration and storage
 
@@ -110,11 +124,16 @@ an existing file. For a standalone executable, run `go build -o romharbor ./cmd/
 | `DATABASE_PATH` | `./data/app.db` | SQLite database |
 
 The flags `--listen`, `--library`, `--cache`, `--sources`, and `--ttl` override the corresponding
-environment settings for one run. Container storage is configured under `/data`.
+environment settings for one run. The download worker reads only `DATABASE_PATH` and
+`ROM_LIBRARY_PATH`, and its `--database` and `--library` flags override them.
+Container storage is configured under `/data`.
 See [`env.dist`](env.dist) for logging and other application settings.
 
 Back up persistent storage before upgrades, and run only one instance against a library.
 For shared storage, provision writable directories and mount them before starting the service.
+
+Upgrades must start the download worker as well. A queued download only leaves the queue when a
+worker claims it, so an installation without a running worker queues downloads that never start.
 
 **Keep ROMHarbor behind a trusted authenticated reverse proxy before exposing it beyond localhost.**
 It does not configure authentication or TLS for you. The inherited `/users` example is still present;
@@ -129,6 +148,7 @@ One Go application, with commands for actions and queries for reads:
 
 ```text
 cmd/web/             Application startup, infrastructure wiring, and HTTP server
+cmd/worker/          Download worker startup: claims the queued downloads and runs them
 internal/domain/     ROM and user domain types
 internal/app/        Command/query handlers and catalog coordination
 internal/adapter/    Source providers, listing cache, download jobs, library, and SQLite
@@ -141,8 +161,10 @@ tests/               Container smoke test
 
 HTTP handlers use `Application.Command` and `Application.Query`; concrete adapters are wired at startup.
 `internal/adapter/config` loads environment configuration. `cmd/web` uses those values to construct
-adapters and catalog collaborators and owns download shutdown. The single `service.NewApp` receives
-those dependencies and only composes handlers; it does not load configuration or own cleanup.
+adapters and catalog collaborators and serves the HTTP interface; it only queues downloads.
+`cmd/worker` uses the same configuration to claim and run the queued downloads from the same
+database. The single `service.NewApp` receives those dependencies and only composes handlers;
+it does not load configuration or own cleanup.
 See [AGENTS.md](AGENTS.md) for contribution conventions and dependency boundaries.
 
 For development checks, use `make test`, `make lint`, and `go test -race ./...`.

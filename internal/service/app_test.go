@@ -42,7 +42,7 @@ func TestNewAppOnlyReturnsApplication(t *testing.T) {
 }
 
 func TestNewAppWiresEveryHandler(t *testing.T) {
-	downloads := romdownloads.NewDownloads(nil, romdownloads.JobPorts{}, romdownloads.DefaultPolicy())
+	downloads := romdownloads.NewEnqueuer(nil)
 	application := NewApp(mock.NewUserRepository(t), romlistings.NewListings(nil, nil, 0), downloads, nil, nil)
 	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(context.Background())) })
 
@@ -82,7 +82,7 @@ func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
 	repo.EXPECT().Delete(ctx, "u1").Return(nil).Once()
 	repo.EXPECT().List(ctx).Return([]user.User{ada}, nil).Once()
 
-	downloads := romdownloads.NewDownloads(nil, romdownloads.JobPorts{}, romdownloads.DefaultPolicy())
+	downloads := romdownloads.NewEnqueuer(nil)
 	application := NewApp(repo, romlistings.NewListings(nil, nil, 0), downloads, nil, nil)
 	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(ctx)) })
 

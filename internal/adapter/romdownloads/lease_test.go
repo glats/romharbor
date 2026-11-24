@@ -116,6 +116,7 @@ func (c *logCapture) at(level slog.Level) []slog.Record {
 
 func TestALostLeaseCancelsTheInstallAndSkipsTheOutcome(t *testing.T) {
 	store, _ := openStore(t)
+	enqueuer := NewEnqueuer(store)
 	queue := &fakeQueue{JobStore: store, heartbeatErr: fmt.Errorf("update job 1: %w", rom.ErrLeaseLost)}
 	logs := &logCapture{}
 	started := make(chan struct{}, 1)
@@ -126,10 +127,10 @@ func TestALostLeaseCancelsTheInstallAndSkipsTheOutcome(t *testing.T) {
 		close(cancelled)
 		return rom.InstallResult{}, ctx.Err()
 	}}
-	downloads := newTestDownloads(t, library, fakePorts(queue), WithLogger(logs.logger()))
-	require.NoError(t, downloads.Resume(context.Background()))
+	runner := newTestRunner(t, library, fakePorts(queue), WithLogger(logs.logger()))
+	require.NoError(t, runner.Resume(context.Background()))
 
-	job, err := downloads.Start(context.Background(), gameRequest("a"))
+	job, err := enqueuer.Start(context.Background(), gameRequest("a"))
 	require.NoError(t, err)
 	<-started
 
@@ -138,7 +139,7 @@ func TestALostLeaseCancelsTheInstallAndSkipsTheOutcome(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the install kept running after the lease was lost")
 	}
-	require.NoError(t, downloads.Shutdown(context.Background()))
+	require.NoError(t, runner.Shutdown(context.Background()))
 
 	heartbeats, completes, retries, fails, releases := queue.counts()
 	assert.Positive(t, heartbeats, "the heartbeat that reported the lost lease was sent")
@@ -157,12 +158,13 @@ func TestALostLeaseCancelsTheInstallAndSkipsTheOutcome(t *testing.T) {
 
 func TestALostLeaseOnCompleteIsLoggedAndStopsTheWrites(t *testing.T) {
 	store, _ := openStore(t)
+	enqueuer := NewEnqueuer(store)
 	queue := &fakeQueue{JobStore: store, completeErr: fmt.Errorf("update job 1: %w", rom.ErrLeaseLost)}
 	logs := &logCapture{}
-	downloads := newTestDownloads(t, &fakeLibrary{install: succeeds}, fakePorts(queue), WithLogger(logs.logger()))
-	require.NoError(t, downloads.Resume(context.Background()))
+	runner := newTestRunner(t, &fakeLibrary{install: succeeds}, fakePorts(queue), WithLogger(logs.logger()))
+	require.NoError(t, runner.Resume(context.Background()))
 
-	job, err := downloads.Start(context.Background(), gameRequest("a"))
+	job, err := enqueuer.Start(context.Background(), gameRequest("a"))
 	require.NoError(t, err)
 	require.NotEmpty(t, job.ID)
 
@@ -170,7 +172,7 @@ func TestALostLeaseOnCompleteIsLoggedAndStopsTheWrites(t *testing.T) {
 		_, completes, _, _, _ := queue.counts()
 		return completes == 1
 	}, 5*time.Second, 5*time.Millisecond)
-	require.NoError(t, downloads.Shutdown(context.Background()))
+	require.NoError(t, runner.Shutdown(context.Background()))
 
 	_, completes, retries, fails, releases := queue.counts()
 	assert.Equal(t, 1, completes)
@@ -185,14 +187,15 @@ func TestALostLeaseOnCompleteIsLoggedAndStopsTheWrites(t *testing.T) {
 
 func TestANotRetryableFailureFailsTheJobOnTheFirstAttempt(t *testing.T) {
 	store, path := openStore(t)
+	enqueuer := NewEnqueuer(store)
 	queue := &fakeQueue{JobStore: store}
 	library := &fakeLibrary{install: func(context.Context, rom.InstallRequest, func(int64, int64)) (rom.InstallResult, error) {
 		return rom.InstallResult{}, fmt.Errorf("checksum mismatch: %w", rom.ErrNotRetryable)
 	}}
-	downloads := newTestDownloads(t, library, fakePorts(queue))
-	require.NoError(t, downloads.Resume(context.Background()))
+	runner := newTestRunner(t, library, fakePorts(queue))
+	require.NoError(t, runner.Resume(context.Background()))
 
-	job, err := downloads.Start(context.Background(), gameRequest("a"))
+	job, err := enqueuer.Start(context.Background(), gameRequest("a"))
 	require.NoError(t, err)
 
 	failed := waitForJob(t, store, job.ID, status(rom.JobFailed))
@@ -208,6 +211,7 @@ func TestANotRetryableFailureFailsTheJobOnTheFirstAttempt(t *testing.T) {
 
 func TestAFailedHeartbeatKeepsTheInstallRunning(t *testing.T) {
 	store, _ := openStore(t)
+	enqueuer := NewEnqueuer(store)
 	queue := &fakeQueue{JobStore: store, heartbeatErr: errors.New("database is busy")}
 	logs := &logCapture{}
 	library := &fakeLibrary{install: func(ctx context.Context, req rom.InstallRequest, p func(int64, int64)) (rom.InstallResult, error) {
@@ -218,10 +222,10 @@ func TestAFailedHeartbeatKeepsTheInstallRunning(t *testing.T) {
 		}
 		return succeeds(ctx, req, p)
 	}}
-	downloads := newTestDownloads(t, library, fakePorts(queue), WithLogger(logs.logger()))
-	require.NoError(t, downloads.Resume(context.Background()))
+	runner := newTestRunner(t, library, fakePorts(queue), WithLogger(logs.logger()))
+	require.NoError(t, runner.Resume(context.Background()))
 
-	job, err := downloads.Start(context.Background(), gameRequest("a"))
+	job, err := enqueuer.Start(context.Background(), gameRequest("a"))
 	require.NoError(t, err)
 
 	done := waitForJob(t, store, job.ID, status(rom.JobDone))

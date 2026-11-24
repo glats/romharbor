@@ -93,7 +93,7 @@ func parseFlags(args []string, cfg config.Config, out io.Writer) (config.Config,
 }
 
 func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
-	if err := sqlite.Migrate(ctx, cfg.Database.Path); err != nil {
+	if err := sqlite.EnsureSchema(ctx, cfg.Database.Path); err != nil {
 		return err
 	}
 
@@ -117,14 +117,7 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	library := &romlibrary.Library{Root: cfg.ROM.Library}
 	jobs := sqlite.NewJobStore(db)
 	listings := romlistings.NewListings(sources, cache, cfg.ROM.CacheTTL)
-	downloads := romdownloads.NewDownloads(library, romdownloads.JobPorts{
-		Producer:    jobs,
-		Worker:      jobs,
-		Maintenance: jobs,
-	}, romdownloads.DefaultPolicy())
-	if err := downloads.Resume(ctx); err != nil {
-		return err
-	}
+	downloads := romdownloads.NewEnqueuer(jobs)
 	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs, library)
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)

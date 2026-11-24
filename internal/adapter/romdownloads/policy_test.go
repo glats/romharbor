@@ -29,16 +29,18 @@ func TestDefaultPolicyKeepsTheValuesTheRunnerUsedBefore(t *testing.T) {
 
 func TestThePolicyDecidesHowManyAttemptsAJobGets(t *testing.T) {
 	store, _ := openStore(t)
+	enqueuer := NewEnqueuer(store)
 	library := &fakeLibrary{install: func(context.Context, rom.InstallRequest, func(int64, int64)) (rom.InstallResult, error) {
 		return rom.InstallResult{}, errors.New("connection reset")
 	}}
 	policy := DefaultPolicy()
 	policy.MaxAttempts = 1
-	downloads := NewDownloads(library, storePorts(store), policy)
-	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
-	require.NoError(t, downloads.Resume(context.Background()))
+	policy.Poll = 10 * time.Millisecond
+	runner := NewRunner(library, storePorts(store), policy)
+	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
+	require.NoError(t, runner.Resume(context.Background()))
 
-	job, err := downloads.Start(context.Background(), gameRequest("a"))
+	job, err := enqueuer.Start(context.Background(), gameRequest("a"))
 	require.NoError(t, err)
 
 	failed := waitForJob(t, store, job.ID, status(rom.JobFailed))
@@ -57,9 +59,9 @@ func TestThePolicyDecidesWhenTheFinishedJobsArePruned(t *testing.T) {
 
 	policy := DefaultPolicy()
 	policy.Retention = 0
-	downloads := NewDownloads(&fakeLibrary{install: succeeds}, storePorts(store), policy)
-	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
-	require.NoError(t, downloads.Resume(ctx))
+	runner := NewRunner(&fakeLibrary{install: succeeds}, storePorts(store), policy)
+	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
+	require.NoError(t, runner.Resume(ctx))
 
 	_, found, err := store.Get(ctx, old.ID)
 	require.NoError(t, err)
@@ -67,7 +69,7 @@ func TestThePolicyDecidesWhenTheFinishedJobsArePruned(t *testing.T) {
 }
 
 func TestTheDownloadRunnerHasNoExportedFields(t *testing.T) {
-	runner := reflect.TypeFor[Downloads]()
+	runner := reflect.TypeFor[Runner]()
 	for i := range runner.NumField() {
 		field := runner.Field(i)
 		if !field.IsExported() {

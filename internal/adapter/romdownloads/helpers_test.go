@@ -58,15 +58,15 @@ func storePorts(store *sqlite.JobStore) JobPorts {
 	return JobPorts{Producer: store, Worker: store, Maintenance: store}
 }
 
-func newTestDownloads(t *testing.T, library *fakeLibrary, jobs JobPorts, options ...Option) *Downloads {
+func newTestRunner(t *testing.T, library *fakeLibrary, jobs JobPorts, options ...Option) *Runner {
 	t.Helper()
 	policy := DefaultPolicy()
 	policy.Poll = 10 * time.Millisecond
 	policy.ProgressEvery = 10 * time.Millisecond
 	policy.Backoff = func(int) time.Duration { return 20 * time.Millisecond }
-	downloads := NewDownloads(library, jobs, policy, options...)
-	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
-	return downloads
+	runner := NewRunner(library, jobs, policy, options...)
+	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
+	return runner
 }
 
 func gameRequest(id string) rom.InstallRequest {

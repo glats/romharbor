@@ -132,5 +132,40 @@ in
         ];
       };
     };
+
+    systemd.services.romharbor-worker = {
+      description = "ROMHarbor download worker";
+      wantedBy = [ "multi-user.target" ];
+      after = [ "network.target" ];
+      environment = {
+        DATABASE_PATH = cfg.databasePath;
+        ROM_LIBRARY_PATH = cfg.libraryPath;
+        LOG_PRETTY = "false";
+        DB_SEED_ENABLED = "false";
+      };
+      serviceConfig = {
+        ExecStart = "${cfg.package}/bin/romharbor-worker";
+        User = cfg.user;
+        Group = cfg.group;
+        WorkingDirectory = "/var/lib/romharbor";
+        StateDirectory = "romharbor";
+        StateDirectoryMode = "0750";
+        UMask = "0027";
+        Restart = "on-failure";
+        RestartSec = 5;
+        TimeoutStopSec = 35;
+        PrivateTmp = true;
+        ProtectSystem = "strict";
+        ProtectHome = true;
+        NoNewPrivileges = true;
+        RestrictSUIDSGID = true;
+        LockPersonality = true;
+        ReadWritePaths = [
+          "-${cfg.libraryPath}"
+          "-${cfg.cachePath}"
+          "-${builtins.dirOf cfg.databasePath}"
+        ];
+      };
+    };
   };
 }

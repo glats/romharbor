@@ -17,9 +17,18 @@ only `127.0.0.1:8080` and stores the SQLite database, cache and library in the n
 `romharbor-data`. The process runs as UID/GID `10001:10001`, with a read-only root filesystem.
 The image includes trusted CA certificates. Do not delete the volume during upgrades.
 
+Compose starts two services from the same image: `romharbor` serves the web interface and
+`romharbor-worker` runs the queued downloads. Both mount the same volume and use the same
+database; only the web service publishes a port. Without the worker service, downloads are queued
+and never start.
+
 To build and run without Compose, including with Podman, use the Dockerfile and the equivalent
 command in the main README, replacing `docker` with `podman` where appropriate. Podman is an
 intended OCI-compatible path; do not infer runtime verification from the Docker tests.
+
+The image ships two executables: `/app/web` is the default entry point and `/app/worker` is the
+download worker. Run both against the same `/data` volume. A container that only runs the web
+entry point queues downloads that no worker claims.
 
 After a versioned public image actually exists, replace `X.Y.Z` with that released version:
 
@@ -31,6 +40,7 @@ docker compose up --no-build -d
 
 Back up the persistent volume before updating. Pin a version or image digest rather than `latest`.
 Do not run multiple ROMHarbor instances against one library: install serialization is instance-local.
+After an update, start the worker service too; a queued download waits for a worker that claims it.
 For a host bind mount instead of the named volume, create the directories and grant UID 10001 access
 yourself; ROMHarbor does not change ownership of your existing library.
 
@@ -46,6 +56,10 @@ declared Go version; `.7z` archives are read in-process, so the package needs no
 nix build .#romharbor
 nix run .# -- --help
 ```
+
+The package ships two executables: `bin/romharbor` is the web server and `bin/romharbor-worker`
+is the download worker. `nix run .#` starts the web server; run the worker binary as a second
+process against the same database to execute the queued downloads.
 
 Outputs are declared for `x86_64-linux` and `aarch64-linux`. CI builds them on native runners.
 An evaluation is not a runtime test, and Darwin is not a supported flake target in this delivery.
@@ -99,6 +113,11 @@ must already exist. For external storage, pre-create directories writable by tha
 module does not take ownership of an existing library. Storage paths must be absolute. The service
 sandbox protects home directories, so use a location such as `/srv` or a mounted media directory,
 not a directory under `/home`. External mounts must be available when the service starts.
+
+Enabling the module starts two units that share the user, group, storage paths and database:
+`romharbor.service` serves the web interface and `romharbor-worker.service` claims the queued
+downloads and runs them. Neither unit depends on the other, so either can be restarted on its own.
+The worker needs no HTTP address and no ROM source list.
 
 No firewall port, domain or authentication provider is configured automatically. Keep the default
 loopback binding unless a trusted authenticated reverse proxy is configured. The inherited `/users`

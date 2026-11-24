@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -19,6 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"app.ddd/internal/adapter/config"
+	"app.ddd/internal/adapter/sqlite"
+	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/service"
 )
 
@@ -162,6 +166,37 @@ func TestStartupMigratesBeforeOptionalSeeding(t *testing.T) {
 			require.NoError(t, second.stop())
 		})
 	}
+}
+
+func TestTheWebServerQueuesTheDownloadsWithoutRunningThem(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	t.Cleanup(upstream.Close)
+
+	path := filepath.Join(t.TempDir(), "app.db")
+	require.NoError(t, sqlite.Migrate(t.Context(), path))
+	db, err := sqlite.Open(t.Context(), path)
+	require.NoError(t, err)
+	jobs := sqlite.NewJobStore(db)
+	job, err := jobs.Enqueue(t.Context(), rom.InstallRequest{
+		Game: rom.Game{ID: "a", Platform: "snes", Title: "A"},
+		File: rom.File{Name: "a.sfc", Size: 100, URL: upstream.URL + "/a.sfc"},
+	})
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	_ = start(t, path)
+	time.Sleep(300 * time.Millisecond)
+
+	raw, err := sql.Open("sqlite3", path)
+	require.NoError(t, err)
+	defer func() { _ = raw.Close() }()
+	var status string
+	var attempts int
+	require.NoError(t, raw.QueryRow(`SELECT status, attempts FROM jobs WHERE id = ?`, job.ID).Scan(&status, &attempts))
+	assert.Equal(t, rom.JobQueued, status, "the web server does not run the downloads")
+	assert.Zero(t, attempts, "the web server does not claim the downloads")
 }
 
 func request(t *testing.T, method, target string, form url.Values) (int, string) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -69,9 +70,12 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 	jobs := newJobs(t)
 	library := &independentLibrary{}
 	listings := romlistings.NewListings([]adapter.RomSource{source}, cache, 0)
-	downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	downloads, runner := newDownloadsWithRunner(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a := service.NewApp(nil, listings, downloads, jobs, library)
-	stop := downloads.Shutdown
+	stop := func(ctx context.Context) error {
+		queueErr := downloads.Shutdown(ctx)
+		return errors.Join(queueErr, runner.Shutdown(ctx))
+	}
 	t.Cleanup(func() { _ = stop(context.Background()) })
 	h := web.NewHandler(a)
 	for _, platform := range []string{"../neighbor", "nested/../../neighbor", `..\neighbor`, "SNES", "snes ", "%2e%2e%2fneighbor", "unknown"} {
@@ -162,9 +166,9 @@ func TestIndependentShutdownCancellation(t *testing.T) {
 	jobs := newJobs(t)
 	library := &independentLibrary{entered: make(chan struct{}), block: true}
 	listings := romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
-	downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	downloads, runner := newDownloadsWithRunner(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	a := service.NewApp(nil, listings, downloads, jobs, library)
-	stop := downloads.Shutdown
+	stop := runner.Shutdown
 	h := web.NewHandler(a)
 	w := independentRequest(h, "POST", "/api/download", `{"id":"ok"}`)
 	if w.Code != 202 {
