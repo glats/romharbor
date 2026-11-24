@@ -92,14 +92,15 @@ func (s *JobStore) Claim(ctx context.Context, lease time.Duration) (adapter.RomJ
 			id       int64
 			request  string
 			attempts int
+			granted  int64
 		)
-		err := s.scanOne(ctx, []any{&id, &request, &attempts},
+		err := s.scanOne(ctx, []any{&id, &request, &attempts, &granted},
 			`UPDATE jobs
-			 SET status = 'running', attempts = attempts + 1, lease_until = ?, error = ''
+			 SET status = 'running', attempts = attempts + 1, lease_until = MAX(?, COALESCE(lease_until, 0) + 1), error = ''
 			 WHERE id = (
 			     SELECT id FROM jobs WHERE status = 'queued' AND run_at <= ? ORDER BY run_at, id LIMIT 1
 			 )
-			 RETURNING id, request, attempts`,
+			 RETURNING id, request, attempts, lease_until`,
 			until, now.UnixMilli(),
 		)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -113,20 +114,17 @@ func (s *JobStore) Claim(ctx context.Context, lease time.Duration) (adapter.RomJ
 		if err != nil {
 			return adapter.RomJobClaim{}, false, err
 		}
+		hold := adapter.RomJobLease{JobID: job.ID, Until: time.UnixMilli(granted)}
 		install, err := decodeRequest(request)
 		if err != nil {
-			claim := adapter.RomJobClaim{
-				JobClaim: rom.JobClaim{Job: job, Request: install, Attempt: attempts},
-				Lease:    adapter.RomJobLease{JobID: job.ID, Until: time.UnixMilli(until)},
-			}
-			if failErr := s.Fail(ctx, claim.Lease, err); failErr != nil {
+			if failErr := s.Fail(ctx, hold, err); failErr != nil {
 				return adapter.RomJobClaim{}, false, failErr
 			}
 			continue
 		}
 		return adapter.RomJobClaim{
 			JobClaim: rom.JobClaim{Job: job, Request: install, Attempt: attempts},
-			Lease:    adapter.RomJobLease{JobID: job.ID, Until: time.UnixMilli(until)},
+			Lease:    hold,
 		}, true, nil
 	}
 }
@@ -162,15 +160,26 @@ func decodeRequest(payload string) (rom.InstallRequest, error) {
 }
 
 func (s *JobStore) Heartbeat(ctx context.Context, lease adapter.RomJobLease, downloaded, total int64, duration time.Duration) (adapter.RomJobLease, error) {
-	until := s.Now().Add(duration).UnixMilli()
-	err := s.updateLeased(ctx, lease,
-		`UPDATE jobs SET downloaded = ?, total = CASE WHEN ? > 0 THEN ? ELSE total END, lease_until = ?
-		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
-		downloaded, total, total, until)
+	number, err := jobNumber(lease.JobID)
 	if err != nil {
 		return adapter.RomJobLease{}, err
 	}
-	return adapter.RomJobLease{JobID: lease.JobID, Until: time.UnixMilli(until)}, nil
+	now := s.Now()
+	until := now.Add(duration).UnixMilli()
+	var granted int64
+	err = s.scanOne(ctx, []any{&granted},
+		`UPDATE jobs SET downloaded = ?, total = CASE WHEN ? > 0 THEN ? ELSE total END,
+		 lease_until = MAX(?, COALESCE(lease_until, 0) + 1)
+		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?
+		 RETURNING lease_until`,
+		downloaded, total, total, until, number, lease.Until.UnixMilli(), now.UnixMilli())
+	if errors.Is(err, sql.ErrNoRows) {
+		return adapter.RomJobLease{}, fmt.Errorf("update job %s: %w", lease.JobID, rom.ErrLeaseLost)
+	}
+	if err != nil {
+		return adapter.RomJobLease{}, fmt.Errorf("update job %s: %w", lease.JobID, err)
+	}
+	return adapter.RomJobLease{JobID: lease.JobID, Until: time.UnixMilli(granted)}, nil
 }
 
 func (s *JobStore) Complete(ctx context.Context, lease adapter.RomJobLease, result rom.InstallResult) error {
@@ -182,7 +191,7 @@ func (s *JobStore) Complete(ctx context.Context, lease adapter.RomJobLease, resu
 
 func (s *JobStore) Retry(ctx context.Context, lease adapter.RomJobLease, cause error, runAt time.Time) error {
 	return s.updateLeased(ctx, lease,
-		`UPDATE jobs SET status = 'queued', error = ?, run_at = ?, lease_until = 0
+		`UPDATE jobs SET status = 'queued', error = ?, run_at = ?
 		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
 		cause.Error(), runAt.UnixMilli())
 }
@@ -196,7 +205,7 @@ func (s *JobStore) Fail(ctx context.Context, lease adapter.RomJobLease, cause er
 
 func (s *JobStore) Release(ctx context.Context, lease adapter.RomJobLease) error {
 	return s.updateLeased(ctx, lease,
-		`UPDATE jobs SET status = 'queued', attempts = MAX(attempts - 1, 0), run_at = ?, lease_until = 0
+		`UPDATE jobs SET status = 'queued', attempts = MAX(attempts - 1, 0), run_at = ?
 		 WHERE id = ? AND status = 'running' AND lease_until = ? AND lease_until >= ?`,
 		s.Now().UnixMilli())
 }
@@ -204,7 +213,7 @@ func (s *JobStore) Release(ctx context.Context, lease adapter.RomJobLease) error
 func (s *JobStore) Recover(ctx context.Context) (int, error) {
 	now := s.Now().UnixMilli()
 	res, err := s.db.ExecContext(ctx,
-		`UPDATE jobs SET status = 'queued', run_at = ?, lease_until = 0
+		`UPDATE jobs SET status = 'queued', run_at = ?
 		 WHERE status = 'running' AND lease_until < ?`, now, now)
 	return affected(res, err, "recover jobs")
 }
@@ -253,10 +262,18 @@ func (s *JobStore) mustGet(ctx context.Context, id int64) (rom.Job, error) {
 	return job, nil
 }
 
-func (s *JobStore) updateLeased(ctx context.Context, lease adapter.RomJobLease, statement string, args ...any) error {
-	number, err := strconv.ParseInt(lease.JobID, 10, 64)
+func jobNumber(id string) (int64, error) {
+	number, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
-		return fmt.Errorf("update job %s: %w", lease.JobID, rom.ErrJobNotFound)
+		return 0, fmt.Errorf("update job %s: %w", id, rom.ErrJobNotFound)
+	}
+	return number, nil
+}
+
+func (s *JobStore) updateLeased(ctx context.Context, lease adapter.RomJobLease, statement string, args ...any) error {
+	number, err := jobNumber(lease.JobID)
+	if err != nil {
+		return err
 	}
 	where := []any{number, lease.Until.UnixMilli(), s.Now().UnixMilli()}
 	res, err := s.db.ExecContext(ctx, statement, append(args[:len(args):len(args)], where...)...)
