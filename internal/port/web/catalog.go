@@ -10,7 +10,9 @@ import (
 	"fmt"
 	"html/template"
 	"log/slog"
+	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -23,6 +25,7 @@ var catalogFuncs = template.FuncMap{
 	"encode": encodeID,
 	"size":   humanSize,
 	"join":   strings.Join,
+	"compat": compatibilityLabel,
 }
 
 const (
@@ -33,16 +36,23 @@ const (
 type catalogPageData struct {
 	Title         string
 	Platforms     []rom.Platform
-	Platform      rom.Platform
-	Games         []rom.Game
+	Platform      *rom.Platform
+	Listing       bool
+	Games         []gameView
 	FailedSources []string
-	Cover         string
 	Total         int
 	Query         string
-	Game          *rom.Game
-	Jobs          []rom.Job
+	Game          *gameView
+	Jobs          []jobView
+	ActiveJobs    int
 	Error         string
 	Destination   string
+	Limit         int
+	Offset        int
+	HasPrev       bool
+	HasNext       bool
+	PrevOffset    int
+	NextOffset    int
 }
 
 type catalogPlatformCount struct {
@@ -68,7 +78,17 @@ func (h *Handler) mountCatalog(mux *http.ServeMux) {
 }
 
 func (h *Handler) catalogHome(w http.ResponseWriter, r *http.Request) {
-	h.catalogRender(w, http.StatusOK, catalogPageData{Title: "ROM catalog", Platforms: rom.Platforms()})
+	jobs, err := h.app.Query.ListJobs.Handle(r.Context(), query.ListJobs{})
+	if err != nil {
+		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: "ROM catalog"})
+		return
+	}
+	h.catalogRender(w, http.StatusOK, catalogPageData{
+		Title:      "ROM catalog",
+		Platforms:  rom.Platforms(),
+		Jobs:       newJobViews(jobs),
+		ActiveJobs: activeJobs(jobs),
+	})
 }
 
 func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
@@ -79,15 +99,27 @@ func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := r.URL.Query().Get("q")
+	offset, _ := catalogPagingInt(r.URL.Query().Get("offset"), 0)
+	limit, ok := catalogPagingInt(r.URL.Query().Get("limit"), defaultCatalogLimit)
+	if !ok {
+		limit = defaultCatalogLimit
+	}
+	if limit > maxCatalogLimit {
+		limit = maxCatalogLimit
+	}
 	destination, err := platform.Destination()
 	if err != nil {
 		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: platform.Name})
 		return
 	}
-	games, err := h.catalogGames(r.Context(), platform.Slug, text, 0, maxCatalogLimit)
+	games, err := h.catalogGames(r.Context(), platform.Slug, text, offset, limit+1)
 	if err != nil {
-		h.catalogFail(w, r, err, http.StatusBadGateway, catalogPageData{Title: platform.Name, Platform: platform})
+		h.catalogFail(w, r, err, http.StatusBadGateway, catalogPageData{Title: platform.Name, Platform: &platform})
 		return
+	}
+	hasNext := len(games.Games) > limit
+	if hasNext {
+		games.Games = games.Games[:limit]
 	}
 	jobs, err := h.app.Query.ListJobs.Handle(r.Context(), query.ListJobs{})
 	if err != nil {
@@ -96,13 +128,21 @@ func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
 	}
 	h.catalogRender(w, http.StatusOK, catalogPageData{
 		Title:         platform.Name,
-		Platform:      platform,
-		Games:         games.Games,
+		Platform:      &platform,
+		Listing:       true,
+		Games:         newGameViews(games.Games),
 		FailedSources: games.FailedSources,
 		Query:         text,
 		Total:         len(games.Games),
-		Jobs:          jobs,
+		Jobs:          newJobViews(jobs),
+		ActiveJobs:    activeJobs(jobs),
 		Destination:   destination,
+		Limit:         limit,
+		Offset:        offset,
+		HasPrev:       offset > 0,
+		HasNext:       hasNext,
+		PrevOffset:    max(0, offset-limit),
+		NextOffset:    offset + limit,
 	})
 }
 
@@ -121,7 +161,7 @@ func (h *Handler) catalogGame(w http.ResponseWriter, r *http.Request) {
 		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: "Game"})
 		return
 	}
-	platform, _ := rom.PlatformBySlug(game.Platform)
+	platform, found := rom.PlatformBySlug(game.Platform)
 	destination, err := platform.Destination()
 	if err != nil {
 		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: game.Title})
@@ -132,12 +172,17 @@ func (h *Handler) catalogGame(w http.ResponseWriter, r *http.Request) {
 		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: game.Title})
 		return
 	}
+	var platformView *rom.Platform
+	if found {
+		platformView = &platform
+	}
+	view := newGameView(game)
 	h.catalogRender(w, http.StatusOK, catalogPageData{
 		Title:       game.Title,
-		Platform:    platform,
-		Game:        &game,
-		Cover:       game.Cover,
-		Jobs:        jobs,
+		Platform:    platformView,
+		Game:        &view,
+		Jobs:        newJobViews(jobs),
+		ActiveJobs:  activeJobs(jobs),
 		Destination: destination,
 	})
 }
@@ -338,6 +383,118 @@ func humanSize(n int64) string {
 		exp++
 	}
 	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
+}
+
+// compatibilityLabel names the compatibility state of a game, empty when the
+// view model carries none.
+func compatibilityLabel(compatible *bool) string {
+	if compatible == nil {
+		return ""
+	}
+	if *compatible {
+		return "compatible"
+	}
+	return "incompatible"
+}
+
+// newGameView turns a catalog game into the view the pages render.
+func newGameView(g rom.Game) gameView {
+	return gameView{
+		ID:       g.ID,
+		Title:    g.Title,
+		Region:   g.Region,
+		Size:     g.Size,
+		Cover:    g.Cover,
+		Source:   g.Source,
+		Platform: g.Platform,
+		PageURL:  g.PageURL,
+		Files:    g.Files,
+	}
+}
+
+// newGameViews turns the games of a listing into the views the pages render.
+func newGameViews(games []rom.Game) []gameView {
+	views := make([]gameView, 0, len(games))
+	for _, g := range games {
+		views = append(views, newGameView(g))
+	}
+	return views
+}
+
+// newJobView turns a download job into the view the panel renders.
+func newJobView(j rom.Job) jobView {
+	return jobView{
+		ID:         j.ID,
+		Title:      j.Title,
+		Status:     j.Status,
+		Platform:   jobPlatform(j.Path),
+		Downloaded: j.Downloaded,
+		Total:      j.Total,
+		Percent:    jobPercent(j),
+		Error:      j.Error,
+		Path:       j.Path,
+	}
+}
+
+// newJobViews turns the download jobs into the views the panel renders, newest
+// job first.
+func newJobViews(jobs []rom.Job) []jobView {
+	views := make([]jobView, 0, len(jobs))
+	for _, j := range jobs {
+		views = append(views, newJobView(j))
+	}
+	sort.SliceStable(views, func(i, k int) bool {
+		return jobNumber(views[i].ID) > jobNumber(views[k].ID)
+	})
+	return views
+}
+
+// activeJobs counts the downloads that are still queued or running.
+func activeJobs(jobs []rom.Job) int {
+	count := 0
+	for _, j := range jobs {
+		if j.Status == rom.JobQueued || j.Status == rom.JobRunning {
+			count++
+		}
+	}
+	return count
+}
+
+// jobPlatform names the platform of a finished download through the library
+// folder of its path, empty while the path is unknown.
+func jobPlatform(path string) string {
+	folder, _, found := strings.Cut(path, "/")
+	if !found || folder == "" {
+		return ""
+	}
+	return folder
+}
+
+// jobPercent reports how much of a download is done, in percent.
+func jobPercent(j rom.Job) int {
+	if j.Status == rom.JobDone {
+		return 100
+	}
+	if j.Total <= 0 {
+		return 0
+	}
+	percent := int(math.Round(float64(j.Downloaded) / float64(j.Total) * 100))
+	if percent < 0 {
+		return 0
+	}
+	if percent > 100 {
+		return 100
+	}
+	return percent
+}
+
+// jobNumber reads the creation order of a job from its identifier.
+func jobNumber(id string) int64 {
+	number, err := strconv.ParseInt(id, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return number
 }
 
 func encodeID(id string) string {
