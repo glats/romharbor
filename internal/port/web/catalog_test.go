@@ -304,3 +304,141 @@ func TestCatalogWriteRejectsUnknownBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rec.Code)
 	assert.Contains(t, rec.Body.String(), "error")
 }
+
+type contractListings struct {
+	games  []rom.Game
+	counts []rom.PlatformCount
+}
+
+func (l contractListings) PlatformCounts(context.Context) ([]rom.PlatformCount, error) {
+	return l.counts, nil
+}
+
+func (l contractListings) ObtainPlatformListing(context.Context, string) (rom.GamePage, error) {
+	return rom.GamePage{Games: l.games}, nil
+}
+
+func (l contractListings) SearchSources(_ context.Context, text, _ string) (rom.GamePage, error) {
+	var out []rom.Game
+	for _, g := range l.games {
+		if text == "" || strings.Contains(strings.ToLower(g.Title), strings.ToLower(text)) {
+			out = append(out, g)
+		}
+	}
+	return rom.GamePage{Games: out}, nil
+}
+
+func (l contractListings) Game(_ context.Context, id string) (rom.Game, bool, error) {
+	for _, g := range l.games {
+		if g.ID == id {
+			return g, true, nil
+		}
+	}
+	return rom.Game{}, false, nil
+}
+
+type contractJobs struct {
+	jobs []rom.Job
+}
+
+func (j contractJobs) Get(_ context.Context, id string) (rom.Job, bool, error) {
+	for _, job := range j.jobs {
+		if job.ID == id {
+			return job, true, nil
+		}
+	}
+	return rom.Job{}, false, nil
+}
+
+func (j contractJobs) List(context.Context) ([]rom.Job, error) {
+	return j.jobs, nil
+}
+
+func newContractHandler(t *testing.T) http.Handler {
+	t.Helper()
+
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	listings := contractListings{
+		games: []rom.Game{{
+			ID:       "fixture:one",
+			Source:   "fixture",
+			Platform: "snes",
+			Title:    "One",
+			Region:   "USA",
+			Size:     2048,
+			Files:    []rom.File{{Name: "One.sfc", Size: 2048, MD5: "0123456789abcdef0123456789abcdef"}},
+		}},
+		counts: []rom.PlatformCount{{
+			Platform: rom.Platform{Slug: "snes", Name: "Super Nintendo Entertainment System", Cores: []string{"snes9x"}, Extensions: []string{".sfc"}},
+			Count:    1,
+		}},
+	}
+	jobs := contractJobs{jobs: []rom.Job{{
+		ID:         "7",
+		GameID:     "fixture:one",
+		Title:      "One",
+		Status:     "done",
+		Downloaded: 2048,
+		Total:      2048,
+		Path:       "snes/One.sfc",
+		Started:    time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
+		Finished:   time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC),
+	}}}
+	application := service.NewApp(appmock.NewUserRepository(t), listings, nil, jobs)
+	return web.NewHandler(application, web.WithLogger(quiet))
+}
+
+func TestCatalogJSONBodiesStayByteIdenticalToTheBase(t *testing.T) {
+	handler := newContractHandler(t)
+
+	tests := []struct {
+		name   string
+		target string
+		want   string
+	}{
+		{
+			name:   "platforms",
+			target: "/api/platforms",
+			want:   `{"platforms":[{"Slug":"snes","Dir":"","Name":"Super Nintendo Entertainment System","Cores":["snes9x"],"Extensions":[".sfc"],"Queries":null,"Thumbnails":"","count":1}]}` + "\n",
+		},
+		{
+			name:   "games",
+			target: "/api/games?platform=snes",
+			want:   `{"games":[{"ID":"fixture:one","Source":"fixture","Platform":"snes","Title":"One","Region":"USA","Size":2048,"Cover":"","Screenshots":null,"PageURL":"","Files":[{"Name":"One.sfc","Size":2048,"MD5":"0123456789abcdef0123456789abcdef","SHA1":"","SHA256":"","URL":"","Archive":false}]}]}` + "\n",
+		},
+		{
+			name:   "game",
+			target: "/api/game?id=fixture:one",
+			want:   `{"game":{"ID":"fixture:one","Source":"fixture","Platform":"snes","Title":"One","Region":"USA","Size":2048,"Cover":"","Screenshots":null,"PageURL":"","Files":[{"Name":"One.sfc","Size":2048,"MD5":"0123456789abcdef0123456789abcdef","SHA1":"","SHA256":"","URL":"","Archive":false}]}}` + "\n",
+		},
+		{
+			name:   "jobs",
+			target: "/api/jobs",
+			want:   `{"jobs":[{"id":"7","game_id":"fixture:one","title":"One","status":"done","downloaded":2048,"total":2048,"path":"snes/One.sfc","started":"2026-01-02T03:04:05Z","finished":"2026-01-02T03:04:06Z"}]}` + "\n",
+		},
+		{
+			name:   "job",
+			target: "/api/job?id=7",
+			want:   `{"id":"7","game_id":"fixture:one","title":"One","status":"done","downloaded":2048,"total":2048,"path":"snes/One.sfc","started":"2026-01-02T03:04:05Z","finished":"2026-01-02T03:04:06Z"}` + "\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := do(t, handler, http.MethodGet, tt.target)
+
+			require.Equal(t, http.StatusOK, rec.Code)
+			assert.Equal(t, tt.want, rec.Body.String())
+		})
+	}
+}
+
+func TestCatalogJobETagStaysTheDigestOfTheBody(t *testing.T) {
+	handler := newContractHandler(t)
+
+	rec := do(t, handler, http.MethodGet, "/api/jobs")
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, `"91406a670c7449f638e6163e35709001"`, rec.Header().Get("ETag"))
+	assert.Equal(t, "no-cache", rec.Header().Get("Cache-Control"))
+}
