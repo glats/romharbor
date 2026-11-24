@@ -21,7 +21,7 @@ Depguard enforces these boundaries. Repository interfaces belong in `internal/ad
 
 ## Behavior and tools
 
-Methods receive `context.Context` first. Commands return errors; queries return data without modifying state.
+Methods receive `context.Context` first. Commands return an error, or the entity they created when the caller needs it; queries return data without modifying state.
 The web handler generates new IDs. Preserve existing log fields, metric keys and typed error behavior.
 Logger configuration lives in `internal/common/logger`, independent of the environment adapter; `cmd/web`
 only invokes it with parsed values and the output writer.
