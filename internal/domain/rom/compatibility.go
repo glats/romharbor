@@ -185,11 +185,19 @@ func (f *variantFacts) readBracket(value string) {
 		f.good = true
 	case strings.HasPrefix(lower, "t+"), strings.HasPrefix(lower, "t-"):
 		f.translation = true
-	case strings.HasPrefix(lower, "b"):
+	case isDumpFlag(lower, "b"):
 		f.badDump = true
-	case strings.HasPrefix(lower, "h"):
+	case isDumpFlag(lower, "h"):
 		f.hack = true
 	}
+}
+
+func isDumpFlag(tag, flag string) bool {
+	rest, ok := strings.CutPrefix(tag, flag)
+	if !ok {
+		return false
+	}
+	return rest == "" || (rest[0] >= '0' && rest[0] <= '9')
 }
 
 func (f *variantFacts) readDisc(value string) {

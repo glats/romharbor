@@ -1,6 +1,7 @@
 package rom
 
 import (
+	"path"
 	"strconv"
 	"strings"
 )
@@ -50,6 +51,7 @@ type variantRank struct {
 	compatible bool
 	verified   bool
 	region     int
+	format     int
 	disc       int
 }
 
@@ -60,6 +62,7 @@ func rankOf(g Game, p Platform) variantRank {
 		compatible: compatibility.Compatible,
 		verified:   facts.good,
 		region:     regionRank(facts.region),
+		format:     formatRank(g),
 		disc:       facts.disc,
 	}
 }
@@ -73,6 +76,9 @@ func better(a, b variantRank) bool {
 	}
 	if a.region != b.region {
 		return a.region < b.region
+	}
+	if a.format != b.format {
+		return a.format < b.format
 	}
 	return a.disc > b.disc
 }
@@ -91,5 +97,18 @@ func regionRank(region string) int {
 		return 5
 	default:
 		return 4
+	}
+}
+
+func formatRank(g Game) int {
+	main, ok := g.Main()
+	if !ok {
+		return 0
+	}
+	switch strings.ToLower(path.Ext(main.Name)) {
+	case ".n64", ".v64", ".cue", ".bin", ".iso":
+		return 1
+	default:
+		return 0
 	}
 }

@@ -13,7 +13,7 @@
   --accent-strong: #1d4ed8;
   --accent-fg: #ffffff;
   --accent-soft: #e6edfd;
-  --ok: #15803d;
+  --ok: #166534;
   --ok-soft: #e2f5e9;
   --bad: #b91c1c;
   --bad-soft: #fdeaea;
@@ -607,6 +607,7 @@ main {
   border: 1px solid var(--border);
 }
 
+.badge-good,
 .badge-compatible {
   background: var(--ok-soft);
   color: var(--ok);
@@ -630,6 +631,7 @@ main {
 }
 
 .badge-heavy,
+.badge-z64,
 .badge-format,
 .badge-demo,
 .badge-sample,

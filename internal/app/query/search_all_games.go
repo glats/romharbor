@@ -70,7 +70,7 @@ func (q searchAllGamesQuery) Handle(ctx context.Context, query SearchAllGames) (
 			result.FailedPlatforms = append(result.FailedPlatforms, platform.Slug)
 			continue
 		}
-		matches := rom.FilterByTitle(page.Games, query.Text)
+		matches := rom.PreferCompatible(rom.FilterByTitle(page.Games, query.Text), platform)
 		found += len(matches)
 		if len(matches) == 0 && len(page.FailedSources) == 0 {
 			continue

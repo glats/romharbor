@@ -115,6 +115,7 @@ func (h *Handler) catalogSearch(w http.ResponseWriter, r *http.Request) {
 			h.catalogFail(w, r, err, http.StatusBadGateway, data)
 			return
 		}
+		data.FailedSources = append(data.FailedSources, result.FailedPlatforms...)
 		for _, group := range result.Platforms {
 			data.Groups = append(data.Groups, searchGroupView{Platform: group.Platform, Games: newGameViews(group.Games)})
 			data.FailedSources = append(data.FailedSources, group.FailedSources...)

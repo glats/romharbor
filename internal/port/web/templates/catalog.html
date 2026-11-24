@@ -135,7 +135,7 @@
 {{if .Searching}}
 <section class="section">
   <h1>{{if .Query}}Results for &ldquo;{{.Query}}&rdquo;{{else}}Search every platform{{end}}</h1>
-  <p class="sub">Searches the platform listings this server already loaded. Open a platform once to load its games.</p>
+  <p class="sub">Searches the listing of every platform. The first search after the server starts can take a while.</p>
   {{range .Groups}}
   <h2 class="group-title"><a href="/platform/{{.Platform.Slug}}?q={{$.Query}}">{{.Platform.Name}}</a></h2>
   <div class="grid">
