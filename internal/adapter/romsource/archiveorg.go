@@ -168,13 +168,22 @@ func (a *ArchiveOrg) ResolvePlatform(_ context.Context, id string) (string, bool
 	if !ok {
 		return "", false, nil
 	}
-	item, _, _ := strings.Cut(rest, "/")
+	item, file, _ := strings.Cut(rest, "/")
+	var candidates []string
 	for _, slug := range slices.Sorted(maps.Keys(a.Sets)) {
 		if slices.Contains(a.Sets[slug], item) {
+			candidates = append(candidates, slug)
+		}
+	}
+	for _, slug := range candidates {
+		if platform, known := rom.PlatformBySlug(slug); known && platform.Accepts(path.Base(file)) {
 			return slug, true, nil
 		}
 	}
-	return "", false, nil
+	if len(candidates) == 0 {
+		return "", false, nil
+	}
+	return candidates[0], true, nil
 }
 
 func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.Game, error) {
