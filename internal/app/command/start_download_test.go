@@ -108,15 +108,13 @@ func TestStartDownloadRejectsInvalidGamesBeforeQueueingAJob(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			fx := newDownloadFixture(t, snes, noFile)
-			queued := 0
 
-			err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
+			job, err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
 				GameID: tt.gameID,
-				Queued: func(rom.Job) { queued++ },
 			})
 
 			require.ErrorIs(t, err, tt.wantErr)
-			assert.Zero(t, queued, "rejected request reported a queued job")
+			assert.Empty(t, job, "rejected request reported a queued job")
 			jobs, listErr := fx.jobs.List(context.Background())
 			require.NoError(t, listErr)
 			assert.Empty(t, jobs)
@@ -129,25 +127,21 @@ func TestStartDownloadRejectsGamesOnUnknownPlatforms(t *testing.T) {
 	fx := newDownloadFixture(t, game)
 	_, err := fx.listings.SearchSources(context.Background(), "nope", "")
 	require.NoError(t, err)
-	queued := 0
 
-	err = NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
+	job, err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
 		GameID: "odd",
-		Queued: func(rom.Job) { queued++ },
 	})
 
 	require.ErrorIs(t, err, rom.ErrUnknownPlatform)
-	assert.Zero(t, queued)
+	assert.Empty(t, job)
 }
 
 func TestStartDownloadQueuesAValidGame(t *testing.T) {
 	game := rom.Game{ID: "g", Platform: "snes", Title: "G", Files: []rom.File{{Name: "G.sfc", Size: 7, URL: "http://unused.invalid/g"}}}
 	fx := newDownloadFixture(t, game)
-	var job rom.Job
 
-	err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
+	job, err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
 		GameID: "g",
-		Queued: func(queued rom.Job) { job = queued },
 	})
 
 	require.NoError(t, err)
@@ -159,19 +153,36 @@ func TestStartDownloadQueuesAValidGame(t *testing.T) {
 	awaitInstall(t, fx.library)
 }
 
+func TestStartDownloadReturnsTheQueuedJobItCreated(t *testing.T) {
+	game := rom.Game{ID: "g", Platform: "snes", Title: "G", Files: []rom.File{{Name: "G.sfc", Size: 7, URL: "http://unused.invalid/g"}}}
+	fx := newDownloadFixture(t, game)
+
+	job, err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
+		GameID: "g",
+	})
+
+	require.NoError(t, err)
+	require.NotEmpty(t, job.ID)
+	stored, ok, err := fx.jobs.Get(context.Background(), job.ID)
+	require.NoError(t, err)
+	require.True(t, ok, "the returned job is not in the store")
+	assert.Equal(t, job.GameID, stored.GameID)
+	assert.Equal(t, job.Title, stored.Title)
+	assert.Equal(t, job.Total, stored.Total)
+	awaitInstall(t, fx.library)
+}
+
 func TestStartDownloadRejectsNewDownloadsAfterShutdownWithoutQueueingAJob(t *testing.T) {
 	game := rom.Game{ID: "g", Platform: "snes", Title: "G", Files: []rom.File{{Name: "G.sfc", URL: "http://unused.invalid/g"}}}
 	fx := newDownloadFixture(t, game)
 	require.NoError(t, fx.downloads.Shutdown(context.Background()))
-	queued := 0
 
-	err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
+	job, err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{
 		GameID: "g",
-		Queued: func(rom.Job) { queued++ },
 	})
 
 	require.ErrorIs(t, err, rom.ErrShuttingDown)
-	assert.Zero(t, queued)
+	assert.Empty(t, job)
 }
 
 type failingListings struct {
@@ -205,13 +216,12 @@ func (f failingDownloads) Start(context.Context, rom.InstallRequest) (rom.Job, e
 func TestStartDownloadReportsListingFailuresInsteadOfGameNotFound(t *testing.T) {
 	cause := errors.New("source unavailable")
 	handler := NewStartDownloadHandler(failingListings{err: cause}, failingDownloads{err: errors.New("downloads not reached")}, metric.NoOp{})
-	queued := 0
 
-	err := handler.Handle(context.Background(), StartDownload{GameID: "g", Queued: func(rom.Job) { queued++ }})
+	job, err := handler.Handle(context.Background(), StartDownload{GameID: "g"})
 
 	require.ErrorIs(t, err, cause)
 	assert.NotErrorIs(t, err, rom.ErrGameNotFound)
-	assert.Zero(t, queued, "a failed lookup reported a queued job")
+	assert.Empty(t, job, "a failed lookup reported a queued job")
 }
 
 func TestStartDownloadReportsDecoratorMetrics(t *testing.T) {
@@ -220,8 +230,10 @@ func TestStartDownloadReportsDecoratorMetrics(t *testing.T) {
 	metrics := &recordingMetrics{}
 	handler := NewStartDownloadHandler(fx.listings, fx.downloads, metrics)
 
-	require.ErrorIs(t, handler.Handle(context.Background(), StartDownload{GameID: "missing"}), rom.ErrGameNotFound)
-	require.NoError(t, handler.Handle(context.Background(), StartDownload{GameID: "g"}))
+	_, err := handler.Handle(context.Background(), StartDownload{GameID: "missing"})
+	require.ErrorIs(t, err, rom.ErrGameNotFound)
+	_, err = handler.Handle(context.Background(), StartDownload{GameID: "g"})
+	require.NoError(t, err)
 
 	assert.Contains(t, metrics.keys, "commands.startdownload.failure")
 	assert.Contains(t, metrics.keys, "commands.startdownload.success")

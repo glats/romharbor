@@ -102,6 +102,26 @@ func TestAcceptedDownloadReturnsTheQueuedSnapshotWhenTheWorkerFinishesFirst(t *t
 	waitForJob(t, handler, "1", "done")
 }
 
+func TestAcceptedDownloadAnswersTheQueuedJobSnapshot(t *testing.T) {
+	game := snesGame("fixture:snapshot", "Snapshot", rom.File{Name: "Snapshot.sfc", Size: 42})
+	handler := newCatalogHandlerWithLibrary(t, t.TempDir(), instantLibrary{}, game)
+
+	rec := postDownload(t, handler, "fixture:snapshot")
+
+	require.Equal(t, http.StatusAccepted, rec.Code)
+	accepted := decodeJSON(t, rec)
+	assert.Equal(t, "1", accepted["id"])
+	assert.Equal(t, "fixture:snapshot", accepted["game_id"])
+	assert.Equal(t, "Snapshot", accepted["title"])
+	assert.Equal(t, "queued", accepted["status"])
+	assert.Equal(t, float64(0), accepted["downloaded"])
+	assert.Equal(t, float64(42), accepted["total"])
+	assert.NotEmpty(t, accepted["started"])
+	assert.Equal(t, "0001-01-01T00:00:00Z", accepted["finished"])
+	assert.NotContains(t, accepted, "path")
+	assert.NotContains(t, accepted, "error")
+}
+
 func TestCatalogJSONEncodeFailureIsLogged(t *testing.T) {
 	var logs bytes.Buffer
 	previous := slog.Default()

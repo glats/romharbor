@@ -17,7 +17,7 @@ type Command struct {
 	CreateUser    decorator.CommandHandler[command.CreateUser]
 	UpdateUser    decorator.CommandHandler[command.UpdateUser]
 	DeleteUser    decorator.CommandHandler[command.DeleteUser]
-	StartDownload decorator.CommandHandler[command.StartDownload]
+	StartDownload decorator.CommandResultHandler[command.StartDownload, rom.Job]
 }
 
 type Query struct {

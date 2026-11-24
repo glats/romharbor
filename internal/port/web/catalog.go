@@ -241,10 +241,8 @@ func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid request body"})
 		return
 	}
-	var queued rom.Job
-	err := h.app.Command.StartDownload.Handle(r.Context(), command.StartDownload{
+	job, err := h.app.Command.StartDownload.Handle(r.Context(), command.StartDownload{
 		GameID: body.ID,
-		Queued: func(job rom.Job) { queued = job },
 	})
 	switch {
 	case errors.Is(err, rom.ErrGameNotFound):
@@ -258,7 +256,7 @@ func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {
 	case err != nil:
 		h.failJSON(w, r, http.StatusInternalServerError, err)
 	default:
-		writeJSON(w, http.StatusAccepted, queued)
+		writeJSON(w, http.StatusAccepted, job)
 	}
 }
 
