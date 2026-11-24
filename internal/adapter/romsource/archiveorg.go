@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/url"
 	"path"
 	"slices"
@@ -168,8 +169,8 @@ func (a *ArchiveOrg) ResolvePlatform(_ context.Context, id string) (string, bool
 		return "", false, nil
 	}
 	item, _, _ := strings.Cut(rest, "/")
-	for slug, items := range a.Sets {
-		if slices.Contains(items, item) {
+	for _, slug := range slices.Sorted(maps.Keys(a.Sets)) {
+		if slices.Contains(a.Sets[slug], item) {
 			return slug, true, nil
 		}
 	}

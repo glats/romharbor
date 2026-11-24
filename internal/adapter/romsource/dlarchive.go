@@ -49,14 +49,20 @@ func (s *singleflight[T]) do(ctx context.Context, key string, fn func(context.Co
 	s.calls[key] = call
 	s.mu.Unlock()
 
-	call.value, call.err = fn(ctx)
-	close(call.done)
-
-	s.mu.Lock()
-	delete(s.calls, key)
-	s.mu.Unlock()
+	call.err = errFlightAborted
+	func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.calls, key)
+			s.mu.Unlock()
+			close(call.done)
+		}()
+		call.value, call.err = fn(ctx)
+	}()
 	return call.value, call.err
 }
+
+var errFlightAborted = errors.New("dlarchive: the fetch ended without a result")
 
 const dlArchiveMaxResponseBytes = 8 << 20
 
