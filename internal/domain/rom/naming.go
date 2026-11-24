@@ -14,12 +14,22 @@ const maxBaseNameBytes = 120
 // archiveExtensions are the container formats the sources publish.
 var archiveExtensions = []string{".zip", ".7z", ".rar"}
 
-// romExtensions are the file extensions that hold a ROM.
-var romExtensions = []string{
-	".nes", ".fds", ".unf", ".unif", ".sfc", ".smc", ".smd", ".fig", ".swc",
-	".gb", ".gbc", ".gba", ".nds", ".dsi", ".n64", ".z64", ".v64", ".u1", ".ndd",
-	".md", ".gen", ".bin", ".smd", ".iso", ".chd", ".cue", ".pbp", ".gcm", ".rvz",
-	".wbfs", ".3ds", ".cia", ".cci", ".a26", ".lnx", ".lyx", ".vpl", ".nsp", ".xci",
+// romExtensions are the file extensions of every platform, so a platform that
+// accepts an extension can never be rejected as a non-game file.
+var romExtensions = platformExtensions()
+
+func platformExtensions() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, p := range platforms {
+		for _, ext := range p.Extensions {
+			if !seen[ext] {
+				seen[ext] = true
+				out = append(out, ext)
+			}
+		}
+	}
+	return out
 }
 
 // ArchiveExtension reports whether ext is an archive format that Install can extract.

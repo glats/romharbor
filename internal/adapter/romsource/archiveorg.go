@@ -11,7 +11,6 @@ import (
 	"path"
 	"sort"
 	"strconv"
-	"strings"
 
 	"app.ddd/internal/adapter/romsource/archiveorgapi"
 	"app.ddd/internal/domain/rom"
@@ -156,18 +155,8 @@ func (a *ArchiveOrg) Search(ctx context.Context, q rom.Query) ([]rom.Game, error
 		}
 	}
 
-	if q.Text != "" {
-		needle := strings.ToLower(q.Text)
-		filtered := games[:0]
-		for _, g := range games {
-			if strings.Contains(strings.ToLower(g.Title), needle) {
-				filtered = append(filtered, g)
-			}
-		}
-		games = filtered
-	}
-
-	sort.Slice(games, func(i, j int) bool { return games[i].Title < games[j].Title })
+	games = rom.FilterByTitle(games, q.Text)
+	rom.SortByTitle(games)
 	return rom.Page(games, q.Offset, q.Limit), nil
 }
 

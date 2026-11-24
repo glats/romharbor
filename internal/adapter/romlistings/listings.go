@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
-	"strings"
 	"sync"
 	"time"
 
@@ -80,16 +79,8 @@ func (l *Listings) Games(ctx context.Context, platform, text string, offset, lim
 			l.searchGames[found.Games[i].ID] = found.Games[i]
 		}
 		l.mu.Unlock()
-		games = append(append([]rom.Game(nil), listing.Games...), found.Games...)
+		games = rom.FilterByTitle(rom.MergeGames(listing.Games, found.Games), text)
 		failed = append(failed, found.FailedSources...)
-		needle := strings.ToLower(text)
-		filtered := make([]rom.Game, 0, len(games))
-		for _, g := range games {
-			if strings.Contains(strings.ToLower(g.Title), needle) {
-				filtered = append(filtered, g)
-			}
-		}
-		games = filtered
 	}
 	return rom.GamePage{Games: rom.Page(games, offset, limit), FailedSources: failed}, nil
 }

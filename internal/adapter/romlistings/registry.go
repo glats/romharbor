@@ -56,7 +56,7 @@ func (r *registry) search(ctx context.Context, q rom.Query) (rom.GamePage, error
 	wg.Wait()
 
 	page := rom.GamePage{}
-	seen := map[string]bool{}
+	var lists [][]rom.Game
 	var errs []error
 	for _, result := range results {
 		if result.err != nil {
@@ -65,14 +65,9 @@ func (r *registry) search(ctx context.Context, q rom.Query) (rom.GamePage, error
 			r.logger.Error("source search failed", "source", result.name, "error", result.err)
 			continue
 		}
-		for _, game := range result.games {
-			if seen[game.ID] {
-				continue
-			}
-			seen[game.ID] = true
-			page.Games = append(page.Games, game)
-		}
+		lists = append(lists, result.games)
 	}
+	page.Games = rom.MergeGames(lists...)
 	if len(queried) > 0 && len(errs) == len(queried) {
 		return page, errs[0]
 	}

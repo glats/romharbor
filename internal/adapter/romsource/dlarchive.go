@@ -87,7 +87,6 @@ func (d *DlArchive) Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 	if err != nil {
 		return nil, err
 	}
-	needle := strings.ToLower(q.Text)
 
 	var games []rom.Game
 	for _, item := range index {
@@ -96,9 +95,6 @@ func (d *DlArchive) Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 			continue
 		}
 		title := rom.CleanTitle(item.Filename)
-		if needle != "" && !strings.Contains(strings.ToLower(title), needle) {
-			continue
-		}
 		games = append(games, rom.Game{
 			ID:       "dlarchive:" + item.Id,
 			Source:   "dlarchive",
@@ -115,7 +111,7 @@ func (d *DlArchive) Search(ctx context.Context, q rom.Query) ([]rom.Game, error)
 			}},
 		})
 	}
-	return rom.Page(games, q.Offset, q.Limit), nil
+	return rom.Page(rom.FilterByTitle(games, q.Text), q.Offset, q.Limit), nil
 }
 
 // items returns the index, fetching it when it is missing or stale.

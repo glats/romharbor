@@ -161,12 +161,13 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 			continue
 		}
 		seen[href] = true
+		title := rom.CleanTitle(name)
 		games = append(games, rom.Game{
 			ID:       "lolroms:" + href,
 			Source:   "lolroms",
 			Platform: slug,
-			Title:    rom.CleanTitle(name),
-			Region:   rom.RegionOf(name),
+			Title:    title,
+			Region:   rom.RegionOf(title),
 			PageURL:  l.BaseURL + href,
 			Files: []rom.File{{
 				Name:    name,
