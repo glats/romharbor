@@ -21,13 +21,14 @@ import (
 )
 
 type brokenListings struct {
-	games    []rom.Game
-	gamesErr error
-	gameErr  error
+	games     []rom.Game
+	gamesErr  error
+	countsErr error
+	gameErr   error
 }
 
 func (l *brokenListings) PlatformCounts(context.Context) ([]rom.PlatformCount, error) {
-	return nil, nil
+	return nil, l.countsErr
 }
 
 func (l *brokenListings) SearchSources(ctx context.Context, _, platform string) (rom.GamePage, error) {
@@ -109,6 +110,8 @@ func TestCatalogRoutesHideTheCauseOfAnInternalFailureAndLogIt(t *testing.T) {
 		wantStatus int
 		jsonBody   bool
 	}{
+		{name: "home counts", target: "/", listings: &brokenListings{countsErr: cause}, wantStatus: http.StatusInternalServerError},
+		{name: "api platforms", target: "/api/platforms", listings: &brokenListings{countsErr: cause}, wantStatus: http.StatusInternalServerError, jsonBody: true},
 		{name: "platform listings", target: "/platform/snes", listings: &brokenListings{gamesErr: cause}, wantStatus: http.StatusBadGateway},
 		{name: "platform destination", target: "/platform/snes", listings: &brokenListings{}, library: brokenLibrary{dirErr: cause}, wantStatus: http.StatusInternalServerError},
 		{name: "platform jobs", target: "/platform/snes", listings: &brokenListings{}, jobs: brokenJobs{listErr: cause}, wantStatus: http.StatusInternalServerError},

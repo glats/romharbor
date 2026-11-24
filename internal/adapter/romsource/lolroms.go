@@ -9,6 +9,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/PuerkitoBio/goquery"
 
@@ -194,7 +195,7 @@ const lolRomsIDPrefix = "lolroms:"
 func (l *LolRoms) ResolveGame(id string) (rom.Game, bool) {
 	href, ok := strings.CutPrefix(id, lolRomsIDPrefix)
 	if !ok || !strings.HasPrefix(href, "/") || strings.HasPrefix(href, "//") ||
-		strings.ContainsAny(href, "?#\\") || !lolRomsArchive.MatchString(href) {
+		strings.ContainsAny(href, "?#\\") || hasControl(href) || !lolRomsArchive.MatchString(href) {
 		return rom.Game{}, false
 	}
 	segments := strings.Split(strings.Trim(href, "/"), "/")
@@ -203,7 +204,7 @@ func (l *LolRoms) ResolveGame(id string) (rom.Game, bool) {
 	}
 	for _, segment := range segments {
 		decoded, err := url.PathUnescape(segment)
-		if err != nil || decoded == "" || decoded == "." || decoded == ".." || strings.ContainsAny(decoded, "/\\") {
+		if err != nil || decoded == "" || decoded == "." || decoded == ".." || hasControl(decoded) || strings.ContainsAny(decoded, "/\\") {
 			return rom.Game{}, false
 		}
 	}
@@ -214,4 +215,8 @@ func (l *LolRoms) ResolveGame(id string) (rom.Game, bool) {
 	}
 	name, _ := url.PathUnescape(path.Base(segments[len(segments)-1]))
 	return l.game(href, slug, name), true
+}
+
+func hasControl(s string) bool {
+	return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) }) >= 0
 }
