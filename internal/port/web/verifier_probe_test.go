@@ -21,7 +21,7 @@ func TestVerifierWebContract(t *testing.T) {
 	l := &independentLibrary{}
 	d := newDownloads(t, l, j, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	defer func() { _ = d.Shutdown(context.Background()) }()
-	a := service.NewApp(nil, romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), time.Hour), d, j, l)
+	a := service.NewApp(nil, romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), time.Hour), d, j)
 	h := web.NewHandler(a)
 	for _, p := range []string{"/api/games?platform=snes", "/api/games?platform=unknown", "/api/game?id=absent", "/api/job?id=absent"} {
 		w := independentRequest(h, "GET", p, "")

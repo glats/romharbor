@@ -29,5 +29,4 @@ type Query struct {
 	ObtainGame          decorator.QueryHandler[query.ObtainGame, rom.Game]
 	ListJobs            decorator.QueryHandler[query.ListJobs, []rom.Job]
 	ObtainJob           decorator.QueryHandler[query.ObtainJob, rom.Job]
-	ObtainDestination   decorator.QueryHandler[query.ObtainDestination, string]
 }

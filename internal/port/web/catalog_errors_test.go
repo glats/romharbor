@@ -85,7 +85,7 @@ func (d brokenDownloads) Start(context.Context, rom.InstallRequest) (rom.Job, er
 func newBrokenCatalogHandler(t *testing.T, listings *brokenListings, jobs brokenJobs, library brokenLibrary, downloads brokenDownloads) (http.Handler, *bytes.Buffer) {
 	t.Helper()
 	logs := &bytes.Buffer{}
-	application := service.NewApp(appmock.NewUserRepository(t), listings, downloads, jobs, library)
+	application := service.NewApp(appmock.NewUserRepository(t), listings, downloads, jobs)
 	return web.NewHandler(application, web.WithLogger(slog.New(slog.NewTextHandler(logs, nil)))), logs
 }
 

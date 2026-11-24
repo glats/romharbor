@@ -38,12 +38,12 @@ func TestNewAppOnlyReturnsApplication(t *testing.T) {
 	constructor := reflect.TypeOf(NewApp)
 	assert.Equal(t, 1, constructor.NumOut())
 	assert.Equal(t, reflect.TypeFor[*app.Application](), constructor.Out(0))
-	assert.Equal(t, reflect.TypeFor[func(adapter.UserRepository, adapter.RomListings, adapter.RomDownloads, adapter.RomJobStore, adapter.RomLibrary) *app.Application](), constructor)
+	assert.Equal(t, reflect.TypeFor[func(adapter.UserRepository, adapter.RomListings, adapter.RomDownloads, adapter.RomJobStore) *app.Application](), constructor)
 }
 
 func TestNewAppWiresEveryHandler(t *testing.T) {
 	downloads := romdownloads.NewEnqueuer(nil)
-	application := NewApp(mock.NewUserRepository(t), romlistings.NewListings(nil, nil, 0), downloads, nil, nil)
+	application := NewApp(mock.NewUserRepository(t), romlistings.NewListings(nil, nil, 0), downloads, nil)
 	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(context.Background())) })
 
 	assert.NotNil(t, application.Command.CreateUser)
@@ -58,7 +58,6 @@ func TestNewAppWiresEveryHandler(t *testing.T) {
 	assert.NotNil(t, application.Query.ObtainGame)
 	assert.NotNil(t, application.Query.ListJobs)
 	assert.NotNil(t, application.Query.ObtainJob)
-	assert.NotNil(t, application.Query.ObtainDestination)
 }
 
 func TestApplicationHasNoParallelCatalogService(t *testing.T) {
@@ -68,7 +67,7 @@ func TestApplicationHasNoParallelCatalogService(t *testing.T) {
 		_, ok := reflect.TypeOf(app.Command{}).FieldByName(name)
 		assert.True(t, ok, "Command."+name)
 	}
-	for _, name := range []string{"ListPlatforms", "BrowsePlatformGames", "SearchGames", "ObtainGame", "ListJobs", "ObtainJob", "ObtainDestination"} {
+	for _, name := range []string{"ListPlatforms", "BrowsePlatformGames", "SearchGames", "ObtainGame", "ListJobs", "ObtainJob"} {
 		_, ok := reflect.TypeOf(app.Query{}).FieldByName(name)
 		assert.True(t, ok, "Query."+name)
 	}
@@ -83,7 +82,7 @@ func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
 	repo.EXPECT().List(ctx).Return([]user.User{ada}, nil).Once()
 
 	downloads := romdownloads.NewEnqueuer(nil)
-	application := NewApp(repo, romlistings.NewListings(nil, nil, 0), downloads, nil, nil)
+	application := NewApp(repo, romlistings.NewListings(nil, nil, 0), downloads, nil)
 	t.Cleanup(func() { assert.NoError(t, downloads.Shutdown(ctx)) })
 
 	got, err := application.Query.ObtainUser.Handle(ctx, query.ObtainUser{ID: "u1"})

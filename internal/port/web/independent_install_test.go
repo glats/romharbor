@@ -46,7 +46,7 @@ func TestIndependentRequestCancellationInstall(t *testing.T) {
 	library := &romlibrary.Library{Root: root + "/roms"}
 	listings := romlistings.NewListings([]adapter.RomSource{payloadSource{upstream.URL}}, romcache.New(root+"/cache"), 0)
 	downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	a := service.NewApp(nil, listings, downloads, jobs, library)
+	a := service.NewApp(nil, listings, downloads, jobs)
 	stop := downloads.Shutdown
 	defer func() { _ = stop(context.Background()) }()
 	h := web.NewHandler(a)

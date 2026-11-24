@@ -42,7 +42,7 @@ func TestCompositionReusesConfiguredCollaborators(t *testing.T) {
 	jobs := newJobs(t)
 	downloads := newDownloads(t, nil, jobs, nil)
 	require.NoError(t, downloads.Shutdown(ctx))
-	application := service.NewApp(nil, listings, downloads, jobs, nil)
+	application := service.NewApp(nil, listings, downloads, jobs)
 	games, err := application.Query.BrowsePlatformGames.Handle(ctx, query.BrowsePlatformGames{
 		Platform: "snes", Limit: 1,
 	})
@@ -72,7 +72,7 @@ func TestSharedCompositionServesUsersAndCachedCatalog(t *testing.T) {
 	jobs := newJobs(t)
 	listings := romlistings.NewListings(nil, cache, time.Hour)
 	downloads := newDownloads(t, nil, jobs, quiet)
-	application := service.NewApp(repo, listings, downloads, jobs, nil)
+	application := service.NewApp(repo, listings, downloads, jobs)
 	t.Cleanup(func() { require.NoError(t, downloads.Shutdown(ctx)) })
 	handler := web.NewHandler(application, web.WithLogger(quiet))
 	for _, path := range []string{

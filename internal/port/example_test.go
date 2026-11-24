@@ -97,7 +97,7 @@ func (j helloJob) Start(ctx context.Context) error {
 }
 
 func Example_helloJob() {
-	application := service.NewApp(newMemoryUsers(), nil, nil, nil, nil)
+	application := service.NewApp(newMemoryUsers(), nil, nil, nil)
 
 	var job port.Job = helloJob{app: application}
 	if err := job.Start(context.Background()); err != nil {

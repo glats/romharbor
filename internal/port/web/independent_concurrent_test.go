@@ -24,7 +24,7 @@ func TestIndependentConcurrentStartShutdown(t *testing.T) {
 		library := &independentLibrary{}
 		listings := romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
 		downloads := newDownloads(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
-		a := service.NewApp(nil, listings, downloads, jobs, library)
+		a := service.NewApp(nil, listings, downloads, jobs)
 		h := web.NewHandler(a)
 		if w := independentRequest(h, "GET", "/api/games?platform=snes", ""); w.Code != 200 {
 			t.Fatal(w.Code)

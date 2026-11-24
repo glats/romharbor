@@ -30,7 +30,7 @@ func TestVerifierPartialHTMLAndPaging(t *testing.T) {
 	l := &independentLibrary{}
 	d := newDownloads(t, l, j, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	defer func() { _ = d.Shutdown(context.Background()) }()
-	h := web.NewHandler(service.NewApp(nil, romlistings.NewListings([]adapter.RomSource{&independentSource{}, verifierBrokenSource{}}, romcache.New(t.TempDir()), time.Hour), d, j, l))
+	h := web.NewHandler(service.NewApp(nil, romlistings.NewListings([]adapter.RomSource{&independentSource{}, verifierBrokenSource{}}, romcache.New(t.TempDir()), time.Hour), d, j))
 	for _, p := range []string{"/platform/snes", "/api/games?platform=snes"} {
 		w := independentRequest(h, "GET", p, "")
 		want := "Some sources did not respond: broken. Showing results from the others."
@@ -61,7 +61,7 @@ func TestVerifierInfrastructureStatus(t *testing.T) {
 	l := &independentLibrary{}
 	d := newDownloads(t, l, j, nil)
 	defer func() { _ = d.Shutdown(context.Background()) }()
-	h := web.NewHandler(service.NewApp(nil, verifierBrokenListings{}, d, j, l))
+	h := web.NewHandler(service.NewApp(nil, verifierBrokenListings{}, d, j))
 	for _, req := range []struct{ method, path, body string }{{"GET", "/api/game?id=x", ""}, {"POST", "/api/download", `{"id":"x"}`}} {
 		w := independentRequest(h, req.method, req.path, req.body)
 		if w.Code != 500 || strings.Contains(w.Body.String(), "PRIVATE-DB") {

@@ -19,7 +19,7 @@ import (
 func newPollingHandler(t *testing.T) (http.Handler, *sqlite.JobStore) {
 	t.Helper()
 	jobs := newJobs(t)
-	application := service.NewApp(nil, nil, nil, jobs, nil)
+	application := service.NewApp(nil, nil, nil, jobs)
 	return web.NewHandler(application), jobs
 }
 

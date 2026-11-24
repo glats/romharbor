@@ -8,7 +8,7 @@ import (
 	"app.ddd/internal/common/metric"
 )
 
-func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings, downloads adapter.RomDownloads, jobs adapter.RomJobStore, library adapter.RomLibrary) *app.Application {
+func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings, downloads adapter.RomDownloads, jobs adapter.RomJobStore) *app.Application {
 	metrics := metric.NoOp{}
 
 	return &app.Application{
@@ -27,7 +27,6 @@ func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings,
 			ObtainGame:          query.NewObtainGameHandler(listings, metrics),
 			ListJobs:            query.NewListJobsHandler(jobs, metrics),
 			ObtainJob:           query.NewObtainJobHandler(jobs, metrics),
-			ObtainDestination:   query.NewObtainDestinationHandler(metrics),
 		},
 	}
 }

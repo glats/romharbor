@@ -65,7 +65,7 @@ func newCatalogHandlerWithLibrary(t *testing.T, cache string, library adapter.Ro
 	jobs := newJobs(t)
 	listings := romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, romcache.New(cache), time.Hour)
 	downloads := newDownloads(t, library, jobs, quiet)
-	application := service.NewApp(appmock.NewUserRepository(t), listings, downloads, jobs, library)
+	application := service.NewApp(appmock.NewUserRepository(t), listings, downloads, jobs)
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 
 	return web.NewHandler(application, web.WithLogger(quiet))

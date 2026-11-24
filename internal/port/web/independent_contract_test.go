@@ -71,7 +71,7 @@ func TestIndependentSecurityAndLifecycle(t *testing.T) {
 	library := &independentLibrary{}
 	listings := romlistings.NewListings([]adapter.RomSource{source}, cache, 0)
 	downloads, runner := newDownloadsWithRunner(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	a := service.NewApp(nil, listings, downloads, jobs, library)
+	a := service.NewApp(nil, listings, downloads, jobs)
 	stop := func(ctx context.Context) error {
 		queueErr := downloads.Shutdown(ctx)
 		return errors.Join(queueErr, runner.Shutdown(ctx))
@@ -167,7 +167,7 @@ func TestIndependentShutdownCancellation(t *testing.T) {
 	library := &independentLibrary{entered: make(chan struct{}), block: true}
 	listings := romlistings.NewListings([]adapter.RomSource{&independentSource{}}, romcache.New(t.TempDir()), 0)
 	downloads, runner := newDownloadsWithRunner(t, library, jobs, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	a := service.NewApp(nil, listings, downloads, jobs, library)
+	a := service.NewApp(nil, listings, downloads, jobs)
 	stop := runner.Shutdown
 	h := web.NewHandler(a)
 	w := independentRequest(h, "POST", "/api/download", `{"id":"ok"}`)

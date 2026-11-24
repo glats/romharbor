@@ -79,7 +79,7 @@ func (h *Handler) catalogPlatform(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	text := r.URL.Query().Get("q")
-	destination, err := h.app.Query.ObtainDestination.Handle(r.Context(), query.ObtainDestination{Platform: platform})
+	destination, err := platform.Destination()
 	if err != nil {
 		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: platform.Name})
 		return
@@ -122,7 +122,7 @@ func (h *Handler) catalogGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	platform, _ := rom.PlatformBySlug(game.Platform)
-	destination, err := h.app.Query.ObtainDestination.Handle(r.Context(), query.ObtainDestination{Platform: platform})
+	destination, err := platform.Destination()
 	if err != nil {
 		h.catalogFail(w, r, err, http.StatusInternalServerError, catalogPageData{Title: game.Title})
 		return

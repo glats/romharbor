@@ -45,7 +45,7 @@ func newPartialCatalogHandler(t *testing.T, sources ...adapter.RomSource) http.H
 	listings := romlistings.NewListings(sources, romcache.New(t.TempDir()), time.Hour)
 	library := &romlibrary.Library{Root: t.TempDir()}
 	downloads := newDownloads(t, library, jobs, quiet)
-	application := service.NewApp(appmock.NewUserRepository(t), listings, downloads, jobs, library)
+	application := service.NewApp(appmock.NewUserRepository(t), listings, downloads, jobs)
 	t.Cleanup(func() { _ = downloads.Shutdown(context.Background()) })
 	return web.NewHandler(application, web.WithLogger(quiet))
 }

@@ -30,7 +30,7 @@ func newHandler(t *testing.T, repo *appmock.UserRepository, opts ...web.Option) 
 
 	quiet := web.WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 
-	application := service.NewApp(repo, nil, nil, nil, nil)
+	application := service.NewApp(repo, nil, nil, nil)
 	application.Query.ListPlatforms = nil
 	return web.NewHandler(application, append([]web.Option{quiet}, opts...)...)
 }
