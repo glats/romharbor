@@ -53,6 +53,10 @@ func TestCatalogQueriesReportDecoratorMetrics(t *testing.T) {
 			_, err := NewSearchGamesHandler(listings, metrics).Handle(ctx, SearchGames{Text: "zelda", Platform: "snes", Limit: 1})
 			return err
 		},
+		"querys.searchallgames.success": func() error {
+			_, err := NewSearchAllGamesHandler(listings, metrics).Handle(ctx, SearchAllGames{Text: "zelda", Limit: 1})
+			return err
+		},
 		"querys.obtaingame.success": func() error {
 			_, err := NewObtainGameHandler(listings, metrics).Handle(ctx, ObtainGame{ID: "1"})
 			return err
