@@ -9,7 +9,7 @@ func TestLibraryFoldersAreTheSystemNamesKnulliScans(t *testing.T) {
 		"psx": "psx", "ps2": "ps2", "psp": "psp",
 		"ngc": "gamecube", "wii": "wii", "n3ds": "3ds",
 		"saturn": "saturn", "dc": "dreamcast",
-		"switch": "switch", "psvita": "psvita", "atari2600": "atari2600", "lynx": "lynx",
+		"arcade": "fbneo", "switch": "switch", "psvita": "psvita", "atari2600": "atari2600", "lynx": "lynx",
 	}
 	for slug, folder := range want {
 		platform, ok := PlatformBySlug(slug)
