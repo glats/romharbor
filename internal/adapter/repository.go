@@ -96,3 +96,7 @@ type RomListings interface {
 type RomDownloads interface {
 	Start(ctx context.Context, req rom.InstallRequest) (rom.Job, error)
 }
+
+type RomCovers interface {
+	Cover(ctx context.Context, platform, title string) (rom.Cover, error)
+}

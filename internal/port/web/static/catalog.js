@@ -317,7 +317,28 @@
     });
   }
 
+  function wireCovers() {
+    Array.prototype.forEach.call(document.querySelectorAll('img.cover'), function (image) {
+      function loaded() {
+        image.classList.add('is-loaded');
+      }
+      function failed() {
+        image.classList.add('is-failed');
+      }
+      image.addEventListener('load', loaded);
+      image.addEventListener('error', failed);
+      if (image.complete) {
+        if (image.naturalWidth > 0) {
+          loaded();
+        } else {
+          failed();
+        }
+      }
+    });
+  }
+
   wireTheme();
+  wireCovers();
   wireDownloads();
   wireDownloadsButtons();
 })();

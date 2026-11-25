@@ -30,4 +30,5 @@ type Query struct {
 	ObtainGame          decorator.QueryHandler[query.ObtainGame, rom.Game]
 	ListJobs            decorator.QueryHandler[query.ListJobs, []rom.Job]
 	ObtainJob           decorator.QueryHandler[query.ObtainJob, rom.Job]
+	ObtainCover         decorator.QueryHandler[query.ObtainCover, rom.Cover]
 }

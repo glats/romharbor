@@ -38,7 +38,7 @@ func TestNewAppOnlyReturnsApplication(t *testing.T) {
 	constructor := reflect.TypeOf(NewApp)
 	assert.Equal(t, 1, constructor.NumOut())
 	assert.Equal(t, reflect.TypeFor[*app.Application](), constructor.Out(0))
-	assert.Equal(t, reflect.TypeFor[func(adapter.UserRepository, adapter.RomListings, adapter.RomDownloads, adapter.RomJobStore) *app.Application](), constructor)
+	assert.Equal(t, reflect.TypeFor[func(adapter.UserRepository, adapter.RomListings, adapter.RomDownloads, adapter.RomJobStore, ...Option) *app.Application](), constructor)
 }
 
 func TestNewAppWiresEveryHandler(t *testing.T) {
@@ -94,4 +94,9 @@ func TestNewAppHandlersUseTheGivenRepository(t *testing.T) {
 	assert.Equal(t, []user.User{ada}, users)
 
 	assert.NoError(t, application.Command.DeleteUser.Handle(ctx, command.DeleteUser{ID: "u1"}))
+}
+
+func TestWithCoversWiresTheCoverQueryAndNothingElseDoes(t *testing.T) {
+	assert.Nil(t, NewApp(nil, nil, nil, nil).Query.ObtainCover)
+	assert.NotNil(t, NewApp(nil, nil, nil, nil, WithCovers(nil)).Query.ObtainCover)
 }

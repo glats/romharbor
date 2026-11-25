@@ -8,10 +8,18 @@ import (
 	"app.ddd/internal/common/metric"
 )
 
-func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings, downloads adapter.RomDownloads, jobs adapter.RomJobStore) *app.Application {
+type Option func(*app.Application, metric.NoOp)
+
+func WithCovers(covers adapter.RomCovers) Option {
+	return func(application *app.Application, metrics metric.NoOp) {
+		application.Query.ObtainCover = query.NewObtainCoverHandler(covers, metrics)
+	}
+}
+
+func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings, downloads adapter.RomDownloads, jobs adapter.RomJobStore, options ...Option) *app.Application {
 	metrics := metric.NoOp{}
 
-	return &app.Application{
+	application := &app.Application{
 		Command: &app.Command{
 			CreateUser:    command.NewCreateUserHandler(userRepository, metrics),
 			UpdateUser:    command.NewUpdateUserHandler(userRepository, metrics),
@@ -30,4 +38,8 @@ func NewApp(userRepository adapter.UserRepository, listings adapter.RomListings,
 			ObtainJob:           query.NewObtainJobHandler(jobs, metrics),
 		},
 	}
+	for _, option := range options {
+		option(application, metrics)
+	}
+	return application
 }

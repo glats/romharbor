@@ -2,6 +2,7 @@ package rom
 
 import (
 	"fmt"
+	"net/url"
 	"path"
 	"strings"
 )
@@ -50,16 +51,38 @@ func (p Platform) Destination() (string, error) {
 	return folder, nil
 }
 
-// CoverURL returns the libretro thumbnail URL for a game title, empty when
-// the platform has no thumbnail collection.
+// CoverURL returns the URL of the libretro boxart for a game title, empty when
+// the platform has no thumbnail collection. The thumbnails live in one
+// repository per collection; libretro replaces the characters that cannot be
+// in a file name with an underscore.
 func (p Platform) CoverURL(title string) string {
 	if p.Thumbnails == "" || title == "" {
 		return ""
 	}
-	return "https://thumbnails.libretro.com/" +
-		strings.ReplaceAll(p.Thumbnails, " ", "%20") +
-		"/Named_Boxarts/" +
-		strings.ReplaceAll(title, " ", "%20") + ".png"
+	return "https://raw.githubusercontent.com/libretro-thumbnails/" +
+		thumbnailName(p.Thumbnails) +
+		"/master/Named_Boxarts/" +
+		url.PathEscape(thumbnailTitle(title)) + ".png"
+}
+
+const thumbnailForbidden = "&*/:`<>?\\|"
+
+func thumbnailTitle(title string) string {
+	return strings.Map(func(r rune) rune {
+		if strings.ContainsRune(thumbnailForbidden, r) {
+			return '_'
+		}
+		return r
+	}, title)
+}
+
+func thumbnailName(set string) string {
+	return strings.Map(func(r rune) rune {
+		if r == ' ' || strings.ContainsRune(thumbnailForbidden, r) {
+			return '_'
+		}
+		return r
+	}, set)
 }
 
 // Accepts reports whether name looks like a ROM file for this platform.
