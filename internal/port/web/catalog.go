@@ -27,6 +27,7 @@ var catalogFuncs = template.FuncMap{
 	"size":   humanSize,
 	"join":   strings.Join,
 	"compat": compatibilityLabel,
+	"hint":   labelHint,
 }
 
 const (
@@ -422,6 +423,14 @@ func humanSize(n int64) string {
 
 // compatibilityLabel names the compatibility state of a game, empty when the
 // view model carries none.
+func labelHint(label string) string {
+	switch label {
+	case rom.LabelHeavy:
+		return "Demanding on a handheld. On Knulli set the core to mupen64plus-next and keep the ROM as .z64; if a menu ignores the D-pad, map the D-pad to the analog stick."
+	}
+	return ""
+}
+
 func compatibilityLabel(compatible *bool) string {
 	if compatible == nil {
 		return ""

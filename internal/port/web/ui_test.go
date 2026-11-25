@@ -396,3 +396,22 @@ func TestTheGlobalSearchGroupsTheMatchesByPlatform(t *testing.T) {
 	none := uiGet(t, h, "/search?q=nothing").Body.String()
 	assert.Contains(t, none, "No games matched.")
 }
+
+func TestHeavyLabelCarriesTheKnulliAdviceAsATooltip(t *testing.T) {
+	pages := parseCatalogPages()
+	var body bytes.Buffer
+	data := map[string]any{
+		"ID":         "fixture:one",
+		"Title":      "Conker's Bad Fur Day (E) [!]",
+		"Region":     "Europe",
+		"Size":       int64(2048),
+		"Cover":      "",
+		"Labels":     []string{"heavy", "pal"},
+		"Compatible": (*bool)(nil),
+	}
+
+	require.NoError(t, pages.ExecuteTemplate(&body, "game-card", data))
+
+	assert.Contains(t, body.String(), `data-badge="heavy" title="Demanding on a handheld. On Knulli set the core to mupen64plus-next and keep the ROM as .z64; if a menu ignores the D-pad, map the D-pad to the analog stick."`)
+	assert.NotContains(t, body.String(), `data-badge="pal" title=`)
+}

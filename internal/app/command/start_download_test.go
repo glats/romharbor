@@ -19,11 +19,37 @@ import (
 )
 
 type fixtureSource struct {
-	games []rom.Game
+	games      []rom.Game
+	searchOnly bool
 }
 
-func (f fixtureSource) Name() string        { return "fixture" }
-func (f fixtureSource) Platforms() []string { return nil }
+func (f fixtureSource) SearchOnly() bool { return f.searchOnly }
+
+func (f fixtureSource) ResolveGame(id string) (rom.Game, bool) {
+	if !f.searchOnly {
+		return rom.Game{}, false
+	}
+	for _, g := range f.games {
+		if g.ID == id {
+			return g, true
+		}
+	}
+	return rom.Game{}, false
+}
+
+func (f fixtureSource) Name() string { return "fixture" }
+func (f fixtureSource) Platforms() []string {
+	seen := map[string]bool{}
+	var slugs []string
+	for _, g := range f.games {
+		if !seen[g.Platform] {
+			seen[g.Platform] = true
+			slugs = append(slugs, g.Platform)
+		}
+	}
+	return slugs
+}
+
 func (f fixtureSource) Search(_ context.Context, _ rom.Query) ([]rom.Game, error) {
 	return f.games, nil
 }
@@ -72,6 +98,11 @@ type downloadFixture struct {
 
 func newDownloadFixture(t *testing.T, games ...rom.Game) downloadFixture {
 	t.Helper()
+	return newSourceFixture(t, false, games...)
+}
+
+func newSourceFixture(t *testing.T, searchOnly bool, games ...rom.Game) downloadFixture {
+	t.Helper()
 	library := &blockingLibrary{started: make(chan struct{}, 1)}
 	path := filepath.Join(t.TempDir(), "app.db")
 	require.NoError(t, sqlite.Migrate(t.Context(), path))
@@ -90,7 +121,7 @@ func newDownloadFixture(t *testing.T, games ...rom.Game) downloadFixture {
 	require.NoError(t, runner.Resume(context.Background()))
 	t.Cleanup(func() { _ = runner.Shutdown(context.Background()) })
 	return downloadFixture{
-		listings:  romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games}}, noCache{}, time.Hour),
+		listings:  romlistings.NewListings([]adapter.RomSource{fixtureSource{games: games, searchOnly: searchOnly}}, noCache{}, time.Hour),
 		downloads: downloads,
 		jobs:      jobs,
 		library:   library,
@@ -250,4 +281,58 @@ func TestStartDownloadReportsDecoratorMetrics(t *testing.T) {
 	assert.Contains(t, metrics.keys, "commands.startdownload.failure")
 	assert.Contains(t, metrics.keys, "commands.startdownload.success")
 	awaitInstall(t, fx.library)
+}
+
+func discGame(id, title string) rom.Game {
+	return rom.Game{ID: id, Source: "fixture", Platform: "psx", Title: title, Files: []rom.File{{Name: title + ".7z", URL: "http://unused.invalid/" + id, Archive: true}}}
+}
+
+func TestStartDownloadOfOneDiscAlsoQueuesTheOtherDiscsOfTheSameRelease(t *testing.T) {
+	for name, searchOnly := range map[string]bool{"a search source": true, "a listing source": false} {
+		t.Run(name, func(t *testing.T) {
+			assertSiblingDiscsQueued(t, searchOnly)
+		})
+	}
+}
+
+func assertSiblingDiscsQueued(t *testing.T, searchOnly bool) {
+	t.Helper()
+	fx := newSourceFixture(t, searchOnly,
+		discGame("d1", "Driver 2 (USA) (Disc 1)"),
+		discGame("d2", "Driver 2 (USA) (Disc 2)"),
+		discGame("d1r", "Driver 2 (USA) (Disc 1) (Rev 1)"),
+		discGame("eu", "Driver 2 - Back on the Streets (Europe) (Disc 2)"),
+		discGame("demo", "Driver 2 (USA) (Demo)"),
+	)
+
+	job, err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{GameID: "d1"})
+
+	require.NoError(t, err)
+	assert.Equal(t, "d1", job.GameID)
+	assert.Eventually(t, func() bool {
+		jobs, listErr := fx.jobs.List(context.Background())
+		return listErr == nil && len(jobs) == 2
+	}, 5*time.Second, 10*time.Millisecond)
+	jobs, err := fx.jobs.List(context.Background())
+	require.NoError(t, err)
+	ids := []string{}
+	for _, queued := range jobs {
+		ids = append(ids, queued.GameID)
+	}
+	assert.ElementsMatch(t, []string{"d1", "d2"}, ids)
+}
+
+func TestStartDownloadOfASingleDiscGameQueuesNothingElse(t *testing.T) {
+	fx := newDownloadFixture(t,
+		discGame("gt", "Gran Turismo (USA)"),
+		discGame("gt2", "Gran Turismo 2 (USA) (Disc 1)"),
+	)
+
+	_, err := NewStartDownloadHandler(fx.listings, fx.downloads, metric.NoOp{}).Handle(context.Background(), StartDownload{GameID: "gt"})
+
+	require.NoError(t, err)
+	time.Sleep(100 * time.Millisecond)
+	jobs, err := fx.jobs.List(context.Background())
+	require.NoError(t, err)
+	assert.Len(t, jobs, 1)
 }

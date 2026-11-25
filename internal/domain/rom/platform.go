@@ -153,13 +153,13 @@ var platforms = []Platform{
 		Slug:       "psx",
 		Thumbnails: "Sony - PlayStation", Name: "Sony PlayStation",
 		Cores:      []string{"pcsx_rearmed", "mednafen_psx_hw"},
-		Extensions: []string{".chd", ".cue", ".bin", ".pbp", ".img"},
+		Extensions: []string{".chd", ".cue", ".bin", ".pbp", ".img", ".m3u"},
 		Queries:    []string{"Sony PlayStation", "PlayStation"},
 	},
 	{
 		Slug: "ps2", Name: "Sony PlayStation 2",
 		Cores:      []string{"pcsx2"},
-		Extensions: []string{".iso", ".chd", ".bin"},
+		Extensions: []string{".iso", ".chd", ".bin", ".m3u"},
 		Queries:    []string{"Sony PlayStation 2", "PlayStation 2"},
 	},
 	{
@@ -171,6 +171,7 @@ var platforms = []Platform{
 	},
 	{
 		Slug:       "ngc",
+		Dir:        "gamecube",
 		Thumbnails: "Nintendo - GameCube", Name: "Nintendo GameCube",
 		Cores:      []string{"dolphin"},
 		Extensions: []string{".iso", ".gcm", ".rvz", ".wbfs"},
@@ -185,6 +186,7 @@ var platforms = []Platform{
 	},
 	{
 		Slug:       "n3ds",
+		Dir:        "3ds",
 		Thumbnails: "Nintendo - Nintendo 3DS", Name: "Nintendo 3DS",
 		Cores:      []string{"azahar"},
 		Extensions: []string{".3ds", ".cia", ".cci"},
@@ -194,14 +196,15 @@ var platforms = []Platform{
 		Slug:       "saturn",
 		Thumbnails: "Sega - Saturn", Name: "Sega Saturn",
 		Cores:      []string{"yabause"},
-		Extensions: []string{".cue", ".bin", ".mds", ".chd"},
+		Extensions: []string{".cue", ".bin", ".mds", ".chd", ".m3u"},
 		Queries:    []string{"Sega Saturn", "Saturn"},
 	},
 	{
 		Slug:       "dc",
+		Dir:        "dreamcast",
 		Thumbnails: "Sega - Dreamcast", Name: "Sega Dreamcast",
 		Cores:      []string{"flycast"},
-		Extensions: []string{".chd", ".gdi", ".cue", ".iso"},
+		Extensions: []string{".chd", ".gdi", ".cue", ".iso", ".m3u"},
 		Queries:    []string{"Sega Dreamcast", "Dreamcast"},
 	},
 	{
