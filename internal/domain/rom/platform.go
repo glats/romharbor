@@ -220,7 +220,7 @@ var platforms = []Platform{
 		Queries:    []string{"Sony PlayStation Vita", "PS Vita"},
 	},
 	{
-		Slug: "arcade", Name: "Arcade",
+		Slug: "arcade", Dir: "fbneo", Name: "Arcade",
 		Cores:      []string{"fbneo", "mame2003_plus"},
 		Extensions: []string{".zip", ".7z"},
 		Queries:    []string{"MAME arcade", "FBNeo"},
