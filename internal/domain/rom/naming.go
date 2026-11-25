@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"strconv"
 	"strings"
 	"unicode"
 	"unicode/utf8"
@@ -167,4 +168,22 @@ func HasROMExt(name string, exts []string) bool {
 // NoROMError reports an archive that holds no file with an accepted extension.
 func NoROMError(exts []string) error {
 	return fmt.Errorf("romcatalog: archive contains no file with extension %s", strings.Join(exts, ", "))
+}
+
+var discTag = regexp.MustCompile(`(?i)\s*\((?:disc|disk|cd)\s*(\d+)(?:\s*of\s*\d+)?\)`)
+
+// DiscOf reads the disc tag of a multi-disc game name. It returns the name
+// without the tag, which is shared by every disc of the same release and
+// revision, and the number of the disc.
+func DiscOf(name string) (group string, disc int, ok bool) {
+	match := discTag.FindStringSubmatchIndex(name)
+	if match == nil {
+		return "", 0, false
+	}
+	number, err := strconv.Atoi(name[match[2]:match[3]])
+	if err != nil || number < 1 {
+		return "", 0, false
+	}
+	rest := name[:match[0]] + name[match[1]:]
+	return strings.Join(strings.Fields(rest), " "), number, true
 }

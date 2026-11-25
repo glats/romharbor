@@ -103,3 +103,31 @@ func TestPlatformDestinationIsItsLibraryFolderOrAnError(t *testing.T) {
 		t.Errorf("Destination() of a platform without a folder error = %v, want ErrNoLibraryFolder", err)
 	}
 }
+
+func TestDiscOfReadsTheDiscTagOfAMultiDiscGame(t *testing.T) {
+	cases := []struct {
+		name  string
+		title string
+		group string
+		disc  int
+		ok    bool
+	}{
+		{"first disc", "Driver 2 (USA) (Disc 1)", "Driver 2 (USA)", 1, true},
+		{"second disc with a revision", "Driver 2 (USA) (Disc 2) (Rev 1)", "Driver 2 (USA) (Rev 1)", 2, true},
+		{"disk spelling", "Final Fantasy VII (Europe) (Disk 3)", "Final Fantasy VII (Europe)", 3, true},
+		{"cd spelling", "Resident Evil 2 (USA) (CD 2)", "Resident Evil 2 (USA)", 2, true},
+		{"disc of total", "Xenogears (USA) (Disc 1 of 2)", "Xenogears (USA)", 1, true},
+		{"disc tag first among others", "Game (Disc 2) (En,Fr)", "Game (En,Fr)", 2, true},
+		{"single disc game", "Gran Turismo (USA)", "", 0, false},
+		{"demo is not a disc", "Driver 2 (USA) (Demo)", "", 0, false},
+		{"discworld is not a disc tag", "Discworld (Europe)", "", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			group, disc, ok := DiscOf(tc.title)
+			if ok != tc.ok || group != tc.group || disc != tc.disc {
+				t.Errorf("DiscOf(%q) = (%q, %d, %v), want (%q, %d, %v)", tc.title, group, disc, ok, tc.group, tc.disc, tc.ok)
+			}
+		})
+	}
+}

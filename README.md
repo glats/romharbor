@@ -11,6 +11,14 @@ into a library organized by platform. Run it on your own server and keep your li
   application database and run by the download worker, one at a time, retry failed attempts,
   and resume after a restart.
 - Save games into platform folders in your library, ready for your own library manager or emulator.
+- Open archives so the library holds the plain ROM or disc image each emulator loads (`.z64`,
+  `.cue` + `.bin`, `.chd`), not a container.
+- Keep multi-disc games complete: starting one disc ("Disc 1", "Disk 2", "CD 3", "Disc 1 of 2")
+  also queues the other discs of the same release, and the platform folder gets a
+  `<Game title>.m3u` playlist (for example `Driver 2 (USA).m3u`) that lists the discs in order with
+  paths relative to the playlist. Load the `.m3u` and RetroArch cores, Knulli and standalone
+  emulators swap discs from their own menu. Installed discs are never moved, and a game with one
+  disc gets no playlist.
 - Cache listings locally to avoid fetching them on every visit.
 
 Archive.org is the default source. `dlarchive` and `lolroms` are opt-in; `lolroms` requires search text.

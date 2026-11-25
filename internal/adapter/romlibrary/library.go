@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path"
 	"path/filepath"
@@ -48,6 +49,9 @@ func (l *Library) Install(ctx context.Context, req rom.InstallRequest, progress 
 	relative, err := filepath.Rel(filepath.Clean(l.Root), result.Path)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return rom.InstallResult{}, notRetryable(fmt.Errorf("romcatalog: installed path %q is outside the library root %q", result.Path, l.Root))
+	}
+	if err := writePlaylist(result.Path); err != nil {
+		slog.Warn("refresh disc playlist", "path", result.Path, "error", err)
 	}
 	result.Path = filepath.ToSlash(relative)
 	return result, nil

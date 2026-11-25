@@ -3,6 +3,8 @@ package command
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/common/decorator"
@@ -40,5 +42,60 @@ func (c startDownloadCommand) Handle(ctx context.Context, cmd StartDownload) (ro
 	if !ok {
 		return rom.Job{}, rom.ErrUnknownPlatform
 	}
-	return c.downloads.Start(ctx, rom.InstallRequest{Game: game, File: file, Platform: platform})
+	job, err := c.downloads.Start(ctx, rom.InstallRequest{Game: game, File: file, Platform: platform})
+	if err != nil {
+		return rom.Job{}, err
+	}
+	if _, _, multiDisc := rom.DiscOf(game.Title); multiDisc {
+		go c.startOtherDiscs(context.WithoutCancel(ctx), game, platform)
+	}
+	return job, nil
+}
+
+const siblingLookupTimeout = 2 * time.Minute
+
+// startOtherDiscs queues the other discs of the release the game belongs to,
+// so the set is complete and the library can write its playlist. A disc that
+// cannot be found or queued is skipped: the requested download stands on its
+// own.
+func (c startDownloadCommand) startOtherDiscs(ctx context.Context, game rom.Game, platform rom.Platform) {
+	ctx, cancel := context.WithTimeout(ctx, siblingLookupTimeout)
+	defer cancel()
+	group, disc, _ := rom.DiscOf(game.Title)
+	candidates := c.candidateDiscs(ctx, game)
+	queued := map[int]bool{disc: true}
+	for _, other := range candidates {
+		otherGroup, number, ok := rom.DiscOf(other.Title)
+		if !ok || queued[number] || otherGroup != group || other.Source != game.Source || other.Platform != game.Platform {
+			continue
+		}
+		file, ok := other.Main()
+		if !ok {
+			continue
+		}
+		if _, err := c.downloads.Start(ctx, rom.InstallRequest{Game: other, File: file, Platform: platform}); err == nil {
+			queued[number] = true
+		}
+	}
+}
+
+// candidateDiscs gathers the games that may be other discs of the game: the
+// hits of the search sources for its title and the platform listing of the
+// listing sources.
+func (c startDownloadCommand) candidateDiscs(ctx context.Context, game rom.Game) []rom.Game {
+	var candidates []rom.Game
+	if page, err := c.listings.SearchSources(ctx, discSearchText(game.Title), game.Platform); err == nil {
+		candidates = append(candidates, page.Games...)
+	}
+	if page, err := c.listings.ObtainPlatformListing(ctx, game.Platform); err == nil {
+		candidates = append(candidates, page.Games...)
+	}
+	return candidates
+}
+
+// discSearchText is the part of a title before its first tag, the words every
+// disc of the game shares.
+func discSearchText(title string) string {
+	text, _, _ := strings.Cut(title, "(")
+	return strings.TrimSpace(text)
 }
