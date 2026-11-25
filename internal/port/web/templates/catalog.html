@@ -1,6 +1,6 @@
 {{define "compatibility"}}<div class="badges" data-compatibility-slot aria-label="Compatibility">
 {{with compat .Compatible}}<span class="badge badge-{{.}}" data-badge="{{.}}">{{.}}</span>{{end}}
-{{range .Labels}}<span class="badge badge-{{.}}" data-badge="{{.}}">{{.}}</span>{{end}}
+{{range .Labels}}<span class="badge badge-{{.}}" data-badge="{{.}}"{{with hint .}} title="{{.}}"{{end}}>{{.}}</span>{{end}}
 </div>{{end}}
 
 {{define "game-card"}}<article class="card">
