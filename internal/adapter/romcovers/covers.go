@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,8 @@ const (
 	missingTTL        = 24 * time.Hour
 	unavailableTTL    = 2 * time.Minute
 	upstreamSlots     = 4
+	defaultMaxBytes   = 256 << 20
+	pruneTarget       = 80
 	notFoundStatus    = 404
 	markerMissing     = "missing"
 	markerUnavailable = "unavailable"
@@ -38,8 +41,14 @@ type Store struct {
 	now     func() time.Time
 	slots   chan struct{}
 
+	maxBytes int64
+
 	mu       sync.Mutex
 	inflight map[string]*fetch
+
+	pruneMu sync.Mutex
+	sized   bool
+	bytes   int64
 }
 
 type fetch struct {
@@ -58,6 +67,10 @@ func WithURLRewrite(rewrite func(string) string) Option {
 	return func(s *Store) { s.rewrite = rewrite }
 }
 
+func WithMaxBytes(limit int64) Option {
+	return func(s *Store) { s.maxBytes = limit }
+}
+
 func WithClock(now func() time.Time) Option {
 	return func(s *Store) { s.now = now }
 }
@@ -67,6 +80,7 @@ func New(dir string, options ...Option) *Store {
 		dir:      dir,
 		fetcher:  romfetch.New(romfetch.NewClient(0)),
 		now:      time.Now,
+		maxBytes: defaultMaxBytes,
 		slots:    make(chan struct{}, upstreamSlots),
 		inflight: map[string]*fetch{},
 	}
@@ -111,6 +125,8 @@ func (s *Store) stored(key string) (rom.Cover, bool) {
 	if err != nil || !isPNG(data) {
 		return rom.Cover{}, false
 	}
+	now := s.now()
+	_ = os.Chtimes(s.imagePath(key), now, now)
 	return rom.Cover{Data: data, ContentType: "image/png"}, true
 }
 
@@ -189,7 +205,9 @@ func (s *Store) download(ctx context.Context, key, upstream string) (rom.Cover, 
 		s.remember(key, markerMissing)
 		return rom.Cover{}, rom.ErrCoverNotFound
 	}
-	_ = s.write(s.imagePath(key), data)
+	if s.write(s.imagePath(key), data) == nil {
+		s.grew(int64(len(data)))
+	}
 	return rom.Cover{Data: data, ContentType: "image/png"}, nil
 }
 
@@ -228,4 +246,74 @@ func (s *Store) write(path string, data []byte) error {
 
 func isPNG(data []byte) bool {
 	return len(data) > 8 && string(data[:8]) == "\x89PNG\r\n\x1a\n"
+}
+
+func (s *Store) grew(added int64) {
+	s.pruneMu.Lock()
+	defer s.pruneMu.Unlock()
+	if s.sized {
+		s.bytes += added
+	} else {
+		s.sized = true
+		s.bytes = 0
+		for _, entry := range s.entries() {
+			s.bytes += entry.size
+		}
+	}
+	if s.maxBytes > 0 && s.bytes > s.maxBytes {
+		s.prune()
+	}
+}
+
+type cached struct {
+	path    string
+	size    int64
+	modTime time.Time
+	marker  bool
+}
+
+func (s *Store) entries() []cached {
+	listing, err := os.ReadDir(s.dir)
+	if err != nil {
+		return nil
+	}
+	found := make([]cached, 0, len(listing))
+	for _, item := range listing {
+		name := item.Name()
+		marker := strings.HasSuffix(name, ".miss")
+		if item.IsDir() || (!marker && !strings.HasSuffix(name, ".png")) {
+			continue
+		}
+		info, err := item.Info()
+		if err != nil {
+			continue
+		}
+		found = append(found, cached{path: filepath.Join(s.dir, name), size: info.Size(), modTime: info.ModTime(), marker: marker})
+	}
+	return found
+}
+
+func (s *Store) prune() {
+	now := s.now()
+	var total int64
+	var kept []cached
+	for _, entry := range s.entries() {
+		if entry.marker && now.Sub(entry.modTime) >= missingTTL {
+			_ = os.Remove(entry.path)
+			continue
+		}
+		total += entry.size
+		kept = append(kept, entry)
+	}
+	sort.Slice(kept, func(i, j int) bool { return kept[i].modTime.Before(kept[j].modTime) })
+	goal := s.maxBytes * pruneTarget / 100
+	for _, entry := range kept {
+		if total <= goal {
+			break
+		}
+		if os.Remove(entry.path) == nil {
+			total -= entry.size
+		}
+	}
+	s.bytes = total
 }

@@ -44,6 +44,7 @@ var heavyN64Titles = []string{
 	"goldeneye007",
 	"donkeykong64",
 	"majorasmask",
+	"conkersbadfurday",
 }
 
 // KnulliCompatibility decides whether a game variant runs on a platform the

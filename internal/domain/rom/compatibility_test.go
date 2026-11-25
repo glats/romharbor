@@ -52,6 +52,12 @@ func TestKnulliCompatibilityReadsTheNoIntroAndRedumpTags(t *testing.T) {
 			want:     Compatibility{Compatible: true, Labels: []string{LabelGood, LabelPAL, LabelHeavy}},
 		},
 		{
+			name:     "conker is heavy because the default n64 core crashes on it",
+			game:     Game{Title: "Conker's Bad Fur Day (E) [!]"},
+			platform: n64,
+			want:     Compatibility{Compatible: true, Labels: []string{LabelGood, LabelPAL, LabelHeavy}},
+		},
+		{
 			name:     "a united states release runs without a label",
 			game:     Game{Title: "Killer Instinct Gold (USA)"},
 			platform: snes,

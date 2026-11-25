@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -214,4 +215,81 @@ func TestTheCachedFileIsReadableByOtherUsers(t *testing.T) {
 	info, err := os.Stat(files[0])
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+}
+
+func sizedPNG(label string, size int) []byte {
+	return append(append([]byte{}, pngBytes...), []byte(strings.Repeat(label, size))...)
+}
+
+func TestTheCacheStaysUnderItsSizeCapByEvictingTheLeastRecentlyUsed(t *testing.T) {
+	_, rewrite := upstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(sizedPNG("x", 400))
+	})
+	dir := t.TempDir()
+	store := New(dir, rewrite, WithMaxBytes(1500))
+	base := time.Now().Add(-time.Hour)
+
+	titles := []string{"A", "B", "C", "D", "E"}
+	for i, title := range titles {
+		_, err := store.Cover(context.Background(), "snes", title)
+		require.NoError(t, err)
+		require.NoError(t, os.Chtimes(filepath.Join(dir, cacheKey("snes", title)+".png"), base.Add(time.Duration(i)*time.Minute), base.Add(time.Duration(i)*time.Minute)))
+	}
+	_, err := store.Cover(context.Background(), "snes", "F")
+	require.NoError(t, err)
+
+	var total int64
+	files, err := filepath.Glob(filepath.Join(dir, "*.png"))
+	require.NoError(t, err)
+	for _, file := range files {
+		info, err := os.Stat(file)
+		require.NoError(t, err)
+		total += info.Size()
+	}
+	assert.LessOrEqual(t, total, int64(1500))
+	assert.NoFileExists(t, filepath.Join(dir, cacheKey("snes", "A")+".png"))
+	assert.FileExists(t, filepath.Join(dir, cacheKey("snes", "F")+".png"))
+}
+
+func TestACachedCoverThatIsReadAgainSurvivesEviction(t *testing.T) {
+	_, rewrite := upstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(sizedPNG("x", 300))
+	})
+	dir := t.TempDir()
+	later := time.Now().Add(time.Hour)
+	store := New(dir, rewrite, WithMaxBytes(1000), WithClock(func() time.Time { return later }))
+	old := time.Now().Add(-time.Hour)
+
+	for i, title := range []string{"A", "B"} {
+		_, err := store.Cover(context.Background(), "snes", title)
+		require.NoError(t, err)
+		stamp := old.Add(time.Duration(i) * time.Minute)
+		require.NoError(t, os.Chtimes(filepath.Join(dir, cacheKey("snes", title)+".png"), stamp, stamp))
+	}
+	_, err := store.Cover(context.Background(), "snes", "A")
+	require.NoError(t, err)
+	for _, title := range []string{"C", "D"} {
+		_, err := store.Cover(context.Background(), "snes", title)
+		require.NoError(t, err)
+	}
+
+	assert.FileExists(t, filepath.Join(dir, cacheKey("snes", "A")+".png"))
+	assert.NoFileExists(t, filepath.Join(dir, cacheKey("snes", "B")+".png"))
+}
+
+func TestExpiredMissingMarkersAreSweptWhenTheCachePrunes(t *testing.T) {
+	_, rewrite := upstream(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(sizedPNG("x", 400))
+	})
+	dir := t.TempDir()
+	stale := filepath.Join(dir, "stale.miss")
+	require.NoError(t, os.WriteFile(stale, []byte(markerMissing), 0o644))
+	old := time.Now().Add(-48 * time.Hour)
+	require.NoError(t, os.Chtimes(stale, old, old))
+	store := New(dir, rewrite, WithMaxBytes(300))
+
+	_, err := store.Cover(context.Background(), "snes", "A")
+	require.NoError(t, err)
+
+	assert.NoFileExists(t, stale)
 }
