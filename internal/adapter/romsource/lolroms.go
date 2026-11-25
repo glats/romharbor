@@ -50,21 +50,21 @@ func (l *LolRoms) Platforms() []string {
 // uses.
 var lolRomsConsoles = map[string][]string{
 	"nes":       {"Nintendo Entertainment System"},
-	"snes":      {"Super Nintendo Entertainment System"},
+	"snes":      {"Super Famicom", "Super Nintendo Entertainment System"},
 	"gb":        {"Game Boy"},
 	"gbc":       {"Game Boy Color"},
 	"gba":       {"Game Boy Advance"},
-	"genesis":   {"Sega Mega Drive - Genesis", "Sega Mega Drive", "Genesis"},
+	"genesis":   {"Mega Drive - Genesis", "Sega Mega Drive - Genesis", "Sega Mega Drive", "Genesis"},
 	"n64":       {"Nintendo 64"},
-	"nds":       {"Nintendo DS"},
-	"psx":       {"Sony PlayStation"},
-	"ps2":       {"Sony PlayStation 2"},
-	"psp":       {"Sony PlayStation Portable"},
-	"saturn":    {"Sega Saturn"},
-	"dc":        {"Sega Dreamcast"},
-	"ngc":       {"Nintendo GameCube"},
-	"wii":       {"Nintendo Wii"},
-	"atari2600": {"Atari 2600"},
+	"nds":       {"DS", "Nintendo DS"},
+	"psx":       {"PlayStation", "Sony PlayStation"},
+	"ps2":       {"PlayStation 2", "Sony PlayStation 2"},
+	"psp":       {"PlayStation Portable", "Sony PlayStation Portable"},
+	"saturn":    {"Saturn", "Sega Saturn"},
+	"dc":        {"DreamCast", "Sega Dreamcast"},
+	"ngc":       {"GameCube", "Nintendo GameCube"},
+	"wii":       {"Wii", "Nintendo Wii"},
+	"atari2600": {"2600", "Atari 2600"},
 }
 
 // lolRomsConsolePlatform returns the platform of a console folder name.

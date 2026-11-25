@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	"app.ddd/internal/domain/rom"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLolRomsSearch(t *testing.T) {
@@ -148,4 +150,48 @@ func TestLolRomsReportsAnErrorWhenEveryEntryCannotBeDecoded(t *testing.T) {
 	if games != nil {
 		t.Errorf("games = %+v, want nil", games)
 	}
+}
+
+func TestLolRomsKnowsTheConsoleFoldersTheSiteActuallyUses(t *testing.T) {
+	cases := map[string]string{
+		"PlayStation":          "psx",
+		"PlayStation 2":        "ps2",
+		"PlayStation Portable": "psp",
+		"Super Famicom":        "snes",
+		"Mega Drive - Genesis": "genesis",
+		"Nintendo 64":          "n64",
+		"DS":                   "nds",
+		"Saturn":               "saturn",
+		"DreamCast":            "dc",
+		"GameCube":             "ngc",
+		"Wii":                  "wii",
+		"2600":                 "atari2600",
+		"Discs":                "",
+		"CDN":                  "",
+		"T-En":                 "",
+	}
+	for console, want := range cases {
+		got, ok := lolRomsConsolePlatform(console)
+		if want == "" {
+			assert.Falsef(t, ok, "console %q must not match, got %q", console, got)
+			continue
+		}
+		assert.Truef(t, ok, "console %q must match", console)
+		assert.Equalf(t, want, got, "console %q", console)
+	}
+}
+
+func TestLolRomsFindsAPlayStationGameUnderTheSonyFolder(t *testing.T) {
+	source := newLolRomsSource(t, func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`<a href="/SONY/PlayStation/Driver%202%20(USA)%20(Disc%201).7z">Driver 2 (USA) (Disc 1).7z</a>
+<a href="/SONY/PlayStation%20Portable/Race%20Driver%202006%20(USA).7z">Race Driver 2006 (USA).7z</a>
+<a href="/Microsoft/Xbox/TOCA%20Race%20Driver%202%20(USA).7z">TOCA Race Driver 2 (USA).7z</a>`))
+	})
+
+	games, err := source.Search(context.Background(), rom.Query{Platform: "psx", Text: "driver 2"})
+
+	require.NoError(t, err)
+	require.Len(t, games, 1)
+	assert.Equal(t, "psx", games[0].Platform)
+	assert.Equal(t, "Driver 2 (USA) (Disc 1)", games[0].Title)
 }
