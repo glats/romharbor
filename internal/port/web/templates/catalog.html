@@ -5,7 +5,7 @@
 
 {{define "game-card"}}<article class="card">
   <a class="card-link" href="/game/{{encode .ID}}">
-    {{if .Cover}}<img class="cover" loading="lazy" src="{{.Cover}}" alt="" onerror="this.style.display='none'">{{else}}<span class="cover-missing">{{.Title}}</span>{{end}}
+    <span class="cover-frame"><span class="cover-missing">{{.Title}}</span>{{if .Cover}}<img class="cover" loading="lazy" decoding="async" src="{{.Cover}}" alt="">{{end}}</span>
     <span class="card-meta"><span class="card-title">{{.Title}}</span><span class="card-sub">{{.Region}}{{if .Size}} &middot; {{size .Size}}{{end}}</span></span>
   </a>
   {{template "compatibility" .}}
@@ -151,7 +151,7 @@
 {{if .Game}}
 <section class="section detail">
   <div class="detail-cover">
-    {{if .Game.Cover}}<img class="cover" src="{{.Game.Cover}}" alt="{{.Game.Title}}" onerror="this.style.display='none'">{{else}}<span class="cover-missing">{{.Game.Title}}</span>{{end}}
+    <span class="cover-frame"><span class="cover-missing">{{.Game.Title}}</span>{{if .Game.Cover}}<img class="cover" decoding="async" src="{{.Game.Cover}}" alt="{{.Game.Title}}">{{end}}</span>
   </div>
   <div class="detail-body">
     <h1>{{.Game.Title}}</h1>

@@ -15,6 +15,7 @@ var (
 	ErrNotRetryable    = errors.New("retrying cannot fix this failure")
 	ErrLeaseLost       = errors.New("job lease lost")
 	ErrOutsideLibrary  = errors.New("the path leaves the library")
+	ErrCoverNotFound   = errors.New("cover not found")
 )
 
 // permanent marks a failure a retry cannot fix.

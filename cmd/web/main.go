@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"app.ddd/internal/adapter"
 	"app.ddd/internal/adapter/config"
 	"app.ddd/internal/adapter/romcache"
+	"app.ddd/internal/adapter/romcovers"
 	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romfetch"
 	"app.ddd/internal/adapter/romlistings"
@@ -116,7 +118,7 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	jobs := sqlite.NewJobStore(db)
 	listings := romlistings.NewListings(sources, cache, cfg.ROM.CacheTTL)
 	downloads := romdownloads.NewEnqueuer(jobs)
-	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs)
+	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs, service.WithCovers(romcovers.New(filepath.Join(cfg.ROM.Cache, "covers"))))
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()

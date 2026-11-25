@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -71,6 +72,7 @@ func (h *Handler) mountCatalog(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", h.catalogHome)
 	mux.HandleFunc("GET /platform/{slug}", h.catalogPlatform)
 	mux.HandleFunc("GET /search", h.catalogSearch)
+	mux.HandleFunc("GET /cover", h.catalogCover)
 	mux.HandleFunc("GET /game/{id}", h.catalogGame)
 	mux.HandleFunc("GET /api/platforms", h.catalogAPIPlatforms)
 	mux.HandleFunc("GET /api/games", h.catalogAPIGames)
@@ -445,7 +447,7 @@ func newGameView(g rom.Game) gameView {
 		Title:      g.Title,
 		Region:     g.Region,
 		Size:       g.Size,
-		Cover:      g.Cover,
+		Cover:      coverURL(g),
 		Source:     g.Source,
 		Platform:   g.Platform,
 		PageURL:    g.PageURL,
@@ -548,4 +550,42 @@ func decodeID(encoded string) (string, error) {
 		return "", fmt.Errorf("bad game id: %w", err)
 	}
 	return string(raw), nil
+}
+
+const maxCoverTitleBytes = 300
+
+func coverURL(g rom.Game) string {
+	if g.Cover == "" || g.Platform == "" || g.Title == "" {
+		return ""
+	}
+	return "/cover?" + url.Values{"platform": {g.Platform}, "title": {g.Title}}.Encode()
+}
+
+func (h *Handler) catalogCover(w http.ResponseWriter, r *http.Request) {
+	params := r.URL.Query()
+	platform, title := params.Get("platform"), params.Get("title")
+	if platform == "" || title == "" || len(title) > maxCoverTitleBytes {
+		http.Error(w, "bad cover request", http.StatusBadRequest)
+		return
+	}
+	if h.app.Query.ObtainCover == nil {
+		http.NotFound(w, r)
+		return
+	}
+	cover, err := h.app.Query.ObtainCover.Handle(r.Context(), query.ObtainCover{Platform: platform, Title: title})
+	switch {
+	case errors.Is(err, rom.ErrCoverNotFound), errors.Is(err, rom.ErrUnknownPlatform):
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		h.logger.Warn("cover unavailable", "platform", platform, "title", title, "error", err)
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, "cover unavailable", http.StatusBadGateway)
+		return
+	}
+	w.Header().Set("Content-Type", cover.ContentType)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
+	_, _ = w.Write(cover.Data)
 }
