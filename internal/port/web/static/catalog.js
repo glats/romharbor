@@ -231,13 +231,29 @@
     if (!panel || !toggle) {
       return;
     }
+    var focusables = function () {
+      return Array.prototype.filter.call(
+        panel.querySelectorAll('a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'),
+        function (element) {
+          return element.getClientRects().length > 0;
+        }
+      );
+    };
     var open = function (state) {
       panel.setAttribute('data-open', state ? 'true' : 'false');
       toggle.setAttribute('aria-expanded', state ? 'true' : 'false');
       if (state) {
+        panel.removeAttribute('inert');
         refreshJobs();
+        var first = focusables()[0];
+        if (first) {
+          first.focus();
+        }
+      } else {
+        panel.setAttribute('inert', '');
       }
     };
+    open(false);
     toggle.addEventListener('click', function () {
       open(panel.getAttribute('data-open') !== 'true');
     });
@@ -249,9 +265,33 @@
       });
     }
     document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && panel.getAttribute('data-open') === 'true') {
+      if (panel.getAttribute('data-open') !== 'true') {
+        return;
+      }
+      if (event.key === 'Escape') {
         open(false);
         toggle.focus();
+        return;
+      }
+      if (event.key !== 'Tab') {
+        return;
+      }
+      var items = focusables();
+      if (items.length === 0) {
+        event.preventDefault();
+        return;
+      }
+      var first = items[0];
+      var last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      } else if (!panel.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
       }
     });
     document.addEventListener('visibilitychange', function () {
