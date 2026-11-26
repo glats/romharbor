@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"log/slog"
 	"math"
+	"mime"
 	"net/http"
 	"net/url"
 	"sort"
@@ -80,6 +81,12 @@ func (h *Handler) mountCatalog(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/game", h.catalogAPIGame)
 	mux.HandleFunc("GET /api/jobs", h.catalogAPIJobs)
 	mux.HandleFunc("GET /api/job", h.catalogAPIJob)
+	if h.app.Query.ObtainGameReadiness != nil {
+		mux.HandleFunc("GET /api/job/readiness", h.catalogAPIJobReadiness)
+	}
+	if h.app.Query.ObtainGameBundle != nil {
+		mux.HandleFunc("GET /api/job/bundle", h.catalogAPIJobBundle)
+	}
 	mux.HandleFunc("POST /api/download", h.catalogAPIDownload)
 }
 
@@ -311,6 +318,42 @@ func (h *Handler) catalogAPIJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeConditionalJSON(w, r, job)
+}
+
+func (h *Handler) catalogAPIJobReadiness(w http.ResponseWriter, r *http.Request) {
+	report, err := h.app.Query.ObtainGameReadiness.Handle(r.Context(), query.ObtainGameReadiness{ID: r.URL.Query().Get("id")})
+	if errors.Is(err, rom.ErrJobNotFound) {
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "job not found"})
+		return
+	}
+	if err != nil {
+		h.failJSON(w, r, http.StatusInternalServerError, err)
+		return
+	}
+	writeConditionalJSON(w, r, report)
+}
+
+func (h *Handler) catalogAPIJobBundle(w http.ResponseWriter, r *http.Request) {
+	bundle, err := h.app.Query.ObtainGameBundle.Handle(r.Context(), query.ObtainGameBundle{ID: r.URL.Query().Get("id")})
+	switch {
+	case errors.Is(err, rom.ErrJobNotFound):
+		writeJSON(w, http.StatusNotFound, map[string]any{"error": "job not found"})
+	case errors.Is(err, rom.ErrBundleUnavailable):
+		writeJSON(w, http.StatusConflict, map[string]any{"error": "portable bundle unavailable; inspect job readiness"})
+	case err != nil:
+		h.failJSON(w, r, http.StatusInternalServerError, err)
+	default:
+		w.Header().Set("Content-Type", "application/zip")
+		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": bundle.Name}))
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Method == http.MethodHead {
+			return
+		}
+		if err := bundle.WriteZIP(r.Context(), w); err != nil {
+			h.logFailure(r, err)
+			panic(http.ErrAbortHandler)
+		}
+	}
 }
 
 func (h *Handler) catalogAPIDownload(w http.ResponseWriter, r *http.Request) {

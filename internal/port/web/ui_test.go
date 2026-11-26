@@ -143,7 +143,7 @@ func TestStaticStylesheetAndScriptAreServedFromTheBinary(t *testing.T) {
 		{
 			path:     "/static/catalog.js",
 			wantType: "javascript",
-			wants:    []string{"/api/jobs", "If-None-Match", "jobsEndpoint", "visibilitychange"},
+			wants:    []string{"/api/jobs", "If-None-Match", "jobsEndpoint", "visibilitychange", "/api/job/readiness", "/api/job/bundle", "Gameplay is not verified"},
 		},
 	}
 

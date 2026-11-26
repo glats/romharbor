@@ -100,3 +100,8 @@ type RomDownloads interface {
 type RomCovers interface {
 	Cover(ctx context.Context, platform, title string) (rom.Cover, error)
 }
+
+type RomGameInspector interface {
+	InspectGame(ctx context.Context, job rom.Job) rom.GameReadiness
+	PrepareGameBundle(ctx context.Context, job rom.Job) (rom.GameBundle, error)
+}

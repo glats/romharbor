@@ -170,7 +170,20 @@ func NoROMError(exts []string) error {
 	return fmt.Errorf("romcatalog: archive contains no file with extension %s", strings.Join(exts, ", "))
 }
 
-var discTag = regexp.MustCompile(`(?i)\s*\((?:disc|disk|cd)\s*(\d+)(?:\s*of\s*\d+)?\)`)
+var discTag = regexp.MustCompile(`(?i)\s*\((?:disc|disk|cd)\s*(\d+)(?:\s*of\s*(\d+))?\)`)
+
+func DeclaredDiscCount(name string) int {
+	match := discTag.FindStringSubmatch(name)
+	if len(match) != 3 {
+		return 0
+	}
+	disc, _ := strconv.Atoi(match[1])
+	count, err := strconv.Atoi(match[2])
+	if err != nil || disc < 1 || count < disc || count > 99 {
+		return 0
+	}
+	return count
+}
 
 // DiscOf reads the disc tag of a multi-disc game name. It returns the name
 // without the tag, which is shared by every disc of the same release and

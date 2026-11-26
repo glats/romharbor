@@ -4,17 +4,80 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"app.ddd/internal/adapter/romlibrary"
 	"app.ddd/internal/adapter/sqlite"
 	"app.ddd/internal/domain/rom"
 	"app.ddd/internal/port/web"
 	"app.ddd/internal/service"
 )
+
+func TestJobReadinessReportsFilesThatAreMissingNow(t *testing.T) {
+	root := t.TempDir()
+	jobs := newJobs(t)
+	application := service.NewApp(nil, nil, nil, jobs, service.WithGameInspector(jobs, &romlibrary.Library{Root: root}))
+	h := web.NewHandler(application)
+	job := queueJob(t, jobs, "Game (Disc 1 of 2)")
+	claim, ok, err := jobs.Claim(t.Context(), time.Minute)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, jobs.Complete(t.Context(), claim.Lease, rom.InstallResult{Path: "psx/game"}))
+	folder := filepath.Join(root, "psx", "game")
+	require.NoError(t, os.MkdirAll(folder, 0o755))
+	for name, data := range map[string]string{
+		"game.m3u":          "Game (Disc 1).cue\nGame (Disc 2).cue\n",
+		"Game (Disc 1).cue": "FILE \"one.bin\" BINARY\n",
+		"Game (Disc 2).cue": "FILE \"two.bin\" BINARY\n",
+		"one.bin":           "test data",
+		"two.bin":           "test data",
+	} {
+		require.NoError(t, os.WriteFile(filepath.Join(folder, name), []byte(data), 0o644))
+	}
+	url := "/api/job/readiness?id=" + job.ID
+
+	first := get(t, h, url, "")
+	require.Equal(t, http.StatusOK, first.Code)
+	initial := decodeJSON(t, first)
+	assert.Equal(t, "complete", initial["status"])
+	assert.Equal(t, "psx/game/game.m3u", initial["entry_point"])
+	assert.Len(t, initial["files"], 5)
+	assert.Equal(t, true, initial["bundle_ready"])
+	assertDestinationStatuses(t, initial, "format_supported", "format_supported", "format_supported")
+	require.NoError(t, os.Remove(filepath.Join(folder, "two.bin")))
+	second := get(t, h, url, first.Header().Get("ETag"))
+	require.Equal(t, http.StatusOK, second.Code)
+	report := decodeJSON(t, second)
+	assert.Equal(t, "incomplete", report["status"])
+	assert.Equal(t, []any{"psx/game/two.bin"}, report["missing_files"])
+	assert.Equal(t, false, report["bundle_ready"])
+	assertDestinationStatuses(t, report, "requirements_missing", "requirements_missing", "requirements_missing")
+}
+
+func assertDestinationStatuses(t *testing.T, report map[string]any, knulli, pcsx, beetle string) {
+	t.Helper()
+	destinations, ok := report["compatibility"].([]any)
+	require.True(t, ok)
+	want := map[string]string{"knulli": knulli, "pcsx_rearmed": pcsx, "mednafen_psx_hw": beetle}
+	require.Len(t, destinations, len(want))
+	for _, item := range destinations {
+		destination, ok := item.(map[string]any)
+		require.True(t, ok)
+		id, ok := destination["destination"].(string)
+		require.True(t, ok)
+		assert.Equal(t, want[id], destination["status"], id)
+		assert.Equal(t, false, destination["gameplay_verified"])
+		assert.NotEmpty(t, destination["evidence"])
+		delete(want, id)
+	}
+	assert.Empty(t, want)
+}
 
 func newPollingHandler(t *testing.T) (http.Handler, *sqlite.JobStore) {
 	t.Helper()

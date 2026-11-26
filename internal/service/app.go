@@ -10,6 +10,13 @@ import (
 
 type Option func(*app.Application, metric.NoOp)
 
+func WithGameInspector(jobs adapter.RomJobStore, inspector adapter.RomGameInspector) Option {
+	return func(application *app.Application, metrics metric.NoOp) {
+		application.Query.ObtainGameReadiness = query.NewObtainGameReadinessHandler(jobs, inspector, metrics)
+		application.Query.ObtainGameBundle = query.NewObtainGameBundleHandler(jobs, inspector, metrics)
+	}
+}
+
 func WithCovers(covers adapter.RomCovers) Option {
 	return func(application *app.Application, metrics metric.NoOp) {
 		application.Query.ObtainCover = query.NewObtainCoverHandler(covers, metrics)

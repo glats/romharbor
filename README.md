@@ -24,6 +24,20 @@ into a library organized by platform. Run it on your own server and keep your li
 Archive.org is the default source. `dlarchive` and `lolroms` are opt-in; `lolroms` requires search text.
 Source availability and metadata depend on the upstream provider.
 
+For a finished PlayStation download, `GET /api/job/readiness?id=<job-id>` checks the installed
+files and reports its entry point, bundle contents, missing files or declared discs, and any
+uncertainty about the set. A complete bundle is not a guarantee of emulator compatibility.
+The `compatibility` array gives separate results for Knulli, PCSX ReARMed, and Beetle PSX HW:
+`format_supported`, `format_unsupported`, `requirements_missing`, or `unknown`. Each result
+links to its format evidence. Format support describes the entry point only; the report does
+not inspect destination firmware or settings, and `gameplay_verified` is always `false`.
+
+`GET /api/job/bundle?id=<job-id>` downloads a PlayStation M3U playlist and its referenced
+files as one ZIP. Extract the ZIP into a destination folder and open the M3U; keep the
+extracted paths together. A missing file, known missing disc, or unsafe reference makes
+the bundle unavailable (`409`). If the source did not declare a disc count, the ZIP can
+still contain every playlist reference without proving that the release has no other discs.
+
 ROMHarbor queries the enabled sources in parallel, each one under its own time limit. The order of
 the source list is the priority order: when two sources report the same game, the one listed first
 wins. When a source does not answer, the catalog shows the games of the other sources and names the

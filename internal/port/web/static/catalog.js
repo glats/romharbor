@@ -159,7 +159,94 @@
     } else {
       article.appendChild(element('p', 'job-note', 'Waiting to start'));
     }
+    if (job.status === 'done' && platform === 'psx') {
+      readinessCards.push(readinessRefresh(article, job));
+    }
     return article;
+  }
+
+  var readinessCards = [];
+  var DESTINATION_LABELS = { knulli: 'Knulli', pcsx_rearmed: 'PCSX ReARMed', mednafen_psx_hw: 'Beetle PSX HW' };
+  var STATUS_LABELS = {
+    format_supported: 'format supported',
+    format_unsupported: 'format not supported',
+    requirements_missing: 'files missing',
+    unknown: 'unknown'
+  };
+
+  function readinessElement(job, report) {
+    var box = element('div', 'job-readiness');
+    var summary = report.status === 'complete' ? 'Game files complete' :
+      report.status === 'incomplete' ? 'Game files missing' : 'Completeness unknown';
+    box.appendChild(element('p', 'job-note', summary + (report.reason ? ': ' + report.reason : '')));
+    (report.missing_files || []).forEach(function (name) {
+      box.appendChild(element('p', 'job-note', 'Missing file: ' + name));
+    });
+    (report.missing_discs || []).forEach(function (number) {
+      box.appendChild(element('p', 'job-note', 'Missing disc ' + number));
+    });
+    var list = element('ul', 'job-compat');
+    (report.compatibility || []).forEach(function (item) {
+      var label = DESTINATION_LABELS[item.destination] || item.destination;
+      var row = element('li', null, label + ': ' + (STATUS_LABELS[item.status] || item.status));
+      row.setAttribute('title', item.reason + (item.gameplay_verified ? '' : ' Gameplay was not verified.'));
+      list.appendChild(row);
+    });
+    if (list.childNodes.length) {
+      box.appendChild(list);
+      box.appendChild(element('p', 'job-note', 'Format support only. Gameplay is not verified.'));
+    }
+    if (report.bundle_ready) {
+      var link = element('a', 'job-bundle', 'Download complete game (ZIP)');
+      link.setAttribute('href', '/api/job/bundle?id=' + encodeURIComponent(job.id));
+      link.setAttribute('download', '');
+      box.appendChild(link);
+    }
+    return box;
+  }
+
+  function readinessRefresh(article, job) {
+    var current = null;
+    var pending = false;
+    return function () {
+      if (pending) {
+        return;
+      }
+      pending = true;
+      fetch('/api/job/readiness?id=' + encodeURIComponent(job.id), { cache: 'no-store' })
+        .then(function (response) {
+          if (!response.ok) {
+            throw new Error('the readiness request failed');
+          }
+          return response.json();
+        })
+        .then(function (report) {
+          if (!article.isConnected) {
+            return;
+          }
+          var next = readinessElement(job, report);
+          if (!current) {
+            article.appendChild(next);
+          } else if (!current.isEqualNode(next)) {
+            article.replaceChild(next, current);
+          } else {
+            return;
+          }
+          current = next;
+        })
+        .catch(function () {
+          return;
+        })
+        .finally(function () {
+          pending = false;
+        });
+    };
+  }
+
+  function refreshReadiness(panel) {
+    if (panel.getAttribute('data-open') === 'true') {
+      readinessCards.forEach(function (refresh) { refresh(); });
+    }
   }
 
   function renderJobs(jobs) {
@@ -167,6 +254,7 @@
     if (!list) {
       return;
     }
+    readinessCards = [];
     list.textContent = '';
     if (!jobs.length) {
       list.appendChild(element('p', 'empty', 'No downloads yet.'));
@@ -195,6 +283,7 @@
     if (!panel) {
       return;
     }
+    refreshReadiness(panel);
     var headers = {};
     if (jobsETag) {
       headers['If-None-Match'] = jobsETag;
@@ -219,6 +308,7 @@
           return;
         }
         renderJobs(payload.jobs || []);
+        refreshReadiness(panel);
       })
       .catch(function () {
         return;

@@ -1,0 +1,65 @@
+<!doctype html>
+<meta charset="utf-8">
+<button id="downloads-toggle">Downloads</button>
+<aside id="downloads-panel"><div id="downloads-list"></div></aside>
+<output id="result">PENDING</output>
+<script>
+  const readinessCalls = [0, 0];
+  let jobsCalls = 0;
+  let trackRemoved = false;
+  let resolveJobs;
+  let conditionalJobs;
+  window.fetch = async (url, options) => {
+    if (url === '/api/jobs') {
+      jobsCalls++;
+      if (jobsCalls > 1) {
+        conditionalJobs = options.headers['If-None-Match'];
+        return new Promise(resolve => { resolveJobs = resolve; });
+      }
+      const jobs = [1, 2].map(id => ({ id, title: 'Disc set ' + id, status: 'done', path: 'psx/set' + id }));
+      return Response.json({ jobs }, { headers: { ETag: 'jobs-v1' } });
+    }
+    const id = Number(new URL(url, 'http://localhost').searchParams.get('id'));
+    readinessCalls[id - 1]++;
+    if (id === 2 && readinessCalls[1] === 1) {
+      return new Response(null, { status: 503 });
+    }
+    if (id === 1 && trackRemoved) {
+      return Response.json({ status: 'incomplete', missing_files: ['track2.bin'], bundle_ready: false });
+    }
+    return Response.json({ status: 'complete', bundle_ready: true });
+  };
+</script>
+<script src="../internal/port/web/static/catalog.js"></script>
+<script>
+  const card = id => document.querySelector(`[data-job-id="${id}"]`);
+  const zip = id => card(id)?.querySelector('.job-bundle')?.getAttribute('href');
+  const click = () => document.getElementById('downloads-toggle').click();
+  const tick = () => new Promise(resolve => setTimeout(resolve, 100));
+  const assert = (condition, message) => { if (!condition) throw new Error(message); };
+  window.addEventListener('load', async () => {
+    const result = document.getElementById('result');
+    try {
+      click();
+      await tick();
+      assert(zip(1) === '/api/job/bundle?id=1' && !zip(2), 'unexpected initial ZIP links');
+      const firstCard = card(1);
+      trackRemoved = true;
+      click();
+      click();
+      await tick();
+      assert(conditionalJobs === 'jobs-v1', 'job polling lost its ETag');
+      const before304 = [!zip(1), card(1).textContent.includes('track2.bin'), zip(2) === '/api/job/bundle?id=2'];
+      resolveJobs(new Response(null, { status: 304 }));
+      await tick();
+      assert(before304.every(Boolean), 'readiness waited for the job list: ' + before304.join(', '));
+      assert(card(1) === firstCard, '304 replaced the existing job card');
+      assert(!zip(1) && card(1).textContent.includes('track2.bin'), 'missing track did not remove ZIP');
+      assert(zip(2) === '/api/job/bundle?id=2', '503 did not recover');
+      assert(jobsCalls === 2 && readinessCalls.every(count => count === 2), 'unexpected request counts');
+      result.textContent = 'PASS: 304 preserved the job card; missing track removed ZIP; next readiness request recovered from 503.';
+    } catch (error) {
+      result.textContent = 'FAIL: ' + error.message;
+    }
+  });
+</script>

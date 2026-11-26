@@ -25,6 +25,7 @@ import (
 	"app.ddd/internal/adapter/romcovers"
 	"app.ddd/internal/adapter/romdownloads"
 	"app.ddd/internal/adapter/romfetch"
+	"app.ddd/internal/adapter/romlibrary"
 	"app.ddd/internal/adapter/romlistings"
 	"app.ddd/internal/adapter/romsource"
 	"app.ddd/internal/adapter/sqlite"
@@ -118,7 +119,10 @@ func run(ctx context.Context, cfg config.Config, ready func(net.Addr)) error {
 	jobs := sqlite.NewJobStore(db)
 	listings := romlistings.NewListings(sources, cache, cfg.ROM.CacheTTL)
 	downloads := romdownloads.NewEnqueuer(jobs)
-	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs, service.WithCovers(romcovers.New(filepath.Join(cfg.ROM.Cache, "covers"))))
+	application := service.NewApp(sqlite.NewUserRepository(db), listings, downloads, jobs,
+		service.WithCovers(romcovers.New(filepath.Join(cfg.ROM.Cache, "covers"))),
+		service.WithGameInspector(jobs, &romlibrary.Library{Root: cfg.ROM.Library}),
+	)
 	stopDownloads := func() error {
 		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), shutdownTimeout)
 		defer cancel()
