@@ -57,9 +57,6 @@
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="header-bar">
-    <button id="sidebar-toggle" type="button" class="icon-button sidebar-toggle" aria-expanded="false" aria-controls="platform-nav" aria-label="Platforms">
-      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
-    </button>
     <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">RH</span>ROMHarbor</a>
     {{if .Platform}}
     <form class="search" role="search" method="get" action="/platform/{{.Platform.Slug}}">
@@ -86,16 +83,6 @@
     </div>
   </div>
 </header>
-<div class="shell">
-<nav id="platform-nav" class="sidebar" aria-label="Platforms" data-open="false">
-  <p class="sidebar-title">Platforms</p>
-  <ul class="sidebar-list">
-  {{range platforms}}
-    <li><a class="sidebar-link" href="/platform/{{.Slug}}"{{if or (and $.Platform (eq $.Platform.Slug .Slug)) (and $.Game (eq $.Game.Platform .Slug))}} aria-current="page"{{end}}>{{template "platform-icon" .Slug}}<span class="sidebar-name">{{.Name}}</span></a></li>
-  {{end}}
-  </ul>
-</nav>
-<button type="button" class="sidebar-backdrop" data-close-sidebar tabindex="-1" aria-hidden="true"></button>
 <main id="main">
 {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
 {{- if .FailedSources}}
@@ -201,7 +188,6 @@
 </section>
 {{end}}
 </main>
-</div>
 <aside id="downloads-panel" class="drawer" aria-labelledby="downloads-title" data-jobs-endpoint="/api/jobs" data-open="false" inert>
   <div class="drawer-head">
     <h2 id="downloads-title">Downloads</h2>

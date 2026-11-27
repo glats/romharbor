@@ -467,62 +467,8 @@
     });
   }
 
-  function wireSidebar() {
-    var nav = document.getElementById('platform-nav');
-    var toggle = document.getElementById('sidebar-toggle');
-    var backdrop = document.querySelector('[data-close-sidebar]');
-    if (!nav || !toggle || !window.matchMedia) {
-      return;
-    }
-    var narrow = window.matchMedia('(max-width: 64rem)');
-    var open = function (state) {
-      nav.setAttribute('data-open', state ? 'true' : 'false');
-      toggle.setAttribute('aria-expanded', state ? 'true' : 'false');
-      if (narrow.matches && !state) {
-        nav.setAttribute('inert', '');
-      } else {
-        nav.removeAttribute('inert');
-      }
-    };
-    var sync = function () {
-      open(false);
-    };
-    sync();
-    if (narrow.addEventListener) {
-      narrow.addEventListener('change', sync);
-    }
-    toggle.addEventListener('click', function () {
-      var state = nav.getAttribute('data-open') !== 'true';
-      open(state);
-      if (state) {
-        var first = nav.querySelector('a[href]');
-        if (first) {
-          first.focus();
-        }
-      }
-    });
-    if (backdrop) {
-      backdrop.addEventListener('click', function () {
-        open(false);
-        toggle.focus();
-      });
-    }
-    nav.addEventListener('click', function (event) {
-      if (event.target.closest && event.target.closest('a[href]')) {
-        open(false);
-      }
-    });
-    document.addEventListener('keydown', function (event) {
-      if (event.key === 'Escape' && nav.getAttribute('data-open') === 'true') {
-        open(false);
-        toggle.focus();
-      }
-    });
-  }
-
   wireTheme();
   wireCovers();
-  wireSidebar();
   wireDownloads();
   wireDownloadsButtons();
 })();
