@@ -1,3 +1,15 @@
+{{define "platform-icon"}}{{with platformStyle .}}<span class="platform-icon" data-brand="{{.Brand}}" aria-hidden="true"><svg class="platform-glyph" viewBox="0 0 24 24"><use href="#pi-{{.Symbol}}"></use></svg></span>{{end}}{{end}}
+
+{{define "platform-sprite"}}<svg class="sprite" width="0" height="0" aria-hidden="true" focusable="false">
+  <symbol id="pi-cartridge" viewBox="0 0 24 24"><path d="M5 3h14v13h-2v5H7v-5H5z"></path><rect x="8.5" y="6" width="7" height="5" rx="1"></rect><path d="M9.5 14h5"></path></symbol>
+  <symbol id="pi-handheld" viewBox="0 0 24 24"><rect x="6" y="2.5" width="12" height="19" rx="2.5"></rect><rect x="8.5" y="5" width="7" height="6" rx="1"></rect><path d="M9 16h3M10.5 14.5v3"></path><circle cx="15" cy="15" r=".8"></circle><circle cx="16.6" cy="17.2" r=".8"></circle></symbol>
+  <symbol id="pi-dual-screen" viewBox="0 0 24 24"><rect x="5" y="2.5" width="14" height="19" rx="2.5"></rect><path d="M5 12h14"></path><rect x="7.5" y="4.5" width="9" height="5" rx=".8"></rect><rect x="7.5" y="14" width="9" height="5" rx=".8"></rect></symbol>
+  <symbol id="pi-disc" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><circle cx="12" cy="12" r="2.5"></circle><path d="M12 5a7 7 0 0 1 7 7"></path></symbol>
+  <symbol id="pi-tablet" viewBox="0 0 24 24"><rect x="7" y="5" width="10" height="14" rx="1.5"></rect><rect x="2.5" y="6" width="3" height="12" rx="1.5"></rect><rect x="18.5" y="6" width="3" height="12" rx="1.5"></rect></symbol>
+  <symbol id="pi-arcade" viewBox="0 0 24 24"><path d="M7 21V8l2-5h6l2 5v13z"></path><rect x="9" y="6" width="6" height="5" rx=".8"></rect><path d="M9 17h6"></path><circle cx="10.5" cy="14.2" r=".9"></circle><circle cx="13.7" cy="14.2" r=".9"></circle></symbol>
+  <symbol id="pi-gamepad" viewBox="0 0 24 24"><path d="M6.5 8h11a4 4 0 0 1 4 4.5l-.7 3.5a2.4 2.4 0 0 1-4 1.2L15 15.5H9L7.2 17.2a2.4 2.4 0 0 1-4-1.2l-.7-3.5A4 4 0 0 1 6.5 8z"></path><path d="M8 10.5v3M6.5 12h3"></path><circle cx="15.5" cy="11.5" r=".8"></circle><circle cx="17.5" cy="13" r=".8"></circle></symbol>
+</svg>{{end}}
+
 {{define "compatibility"}}<div class="badges" data-compatibility-slot aria-label="Compatibility">
 {{with compat .Compatible}}<span class="badge badge-{{.}}" data-badge="{{.}}">{{.}}</span>{{end}}
 {{range .Labels}}<span class="badge badge-{{.}}" data-badge="{{.}}"{{with hint .}} title="{{.}}"{{end}}>{{.}}</span>{{end}}
@@ -5,7 +17,7 @@
 
 {{define "game-card"}}<article class="card">
   <a class="card-link" href="/game/{{encode .ID}}">
-    <span class="cover-frame"><span class="cover-missing">{{.Title}}</span>{{if .Cover}}<img class="cover" loading="lazy" decoding="async" src="{{.Cover}}" alt="">{{end}}</span>
+    <span class="cover-frame"><span class="cover-missing">{{template "platform-icon" .Platform}}<span class="cover-missing-title">{{.Title}}</span></span>{{if .Cover}}<img class="cover" loading="lazy" decoding="async" src="{{.Cover}}" alt="">{{end}}</span>
     <span class="card-meta"><span class="card-title">{{.Title}}</span><span class="card-sub">{{.Region}}{{if .Size}} &middot; {{size .Size}}{{end}}</span></span>
   </a>
   {{template "compatibility" .}}
@@ -41,9 +53,13 @@
 <script src="/static/catalog.js" defer></script>
 </head>
 <body>
+{{template "platform-sprite"}}
 <a class="skip-link" href="#main">Skip to content</a>
 <header class="site-header">
   <div class="header-bar">
+    <button id="sidebar-toggle" type="button" class="icon-button sidebar-toggle" aria-expanded="false" aria-controls="platform-nav" aria-label="Platforms">
+      <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"></path></svg>
+    </button>
     <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">RH</span>ROMHarbor</a>
     {{if .Platform}}
     <form class="search" role="search" method="get" action="/platform/{{.Platform.Slug}}">
@@ -70,6 +86,16 @@
     </div>
   </div>
 </header>
+<div class="shell">
+<nav id="platform-nav" class="sidebar" aria-label="Platforms" data-open="false">
+  <p class="sidebar-title">Platforms</p>
+  <ul class="sidebar-list">
+  {{range platforms}}
+    <li><a class="sidebar-link" href="/platform/{{.Slug}}"{{if or (and $.Platform (eq $.Platform.Slug .Slug)) (and $.Game (eq $.Game.Platform .Slug))}} aria-current="page"{{end}}>{{template "platform-icon" .Slug}}<span class="sidebar-name">{{.Name}}</span></a></li>
+  {{end}}
+  </ul>
+</nav>
+<button type="button" class="sidebar-backdrop" data-close-sidebar tabindex="-1" aria-hidden="true"></button>
 <main id="main">
 {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
 {{- if .FailedSources}}
@@ -87,7 +113,7 @@
   </div>
   <ul class="platforms">
   {{range .Platforms}}
-    <li><a class="platform-link" href="/platform/{{.Slug}}">{{.Name}}<small>{{join .Cores ", "}}</small></a></li>
+    <li><a class="platform-link" href="/platform/{{.Slug}}">{{template "platform-icon" .Slug}}<span class="platform-text"><b>{{.Name}}</b><span class="platform-cores">{{range .Cores}}<span class="core-chip">{{.}}</span>{{end}}</span></span><span class="platform-mark">{{(platformStyle .Slug).Mark}}</span></a></li>
   {{end}}
   </ul>
 </section>
@@ -95,8 +121,13 @@
 
 {{if and .Listing .Platform}}
 <section class="section">
-  <h1>{{.Platform.Name}}</h1>
-  <p class="sub">{{.Platform.Slug}} &middot; cores: {{join .Platform.Cores ", "}}</p>
+  <div class="platform-heading">
+    {{template "platform-icon" .Platform.Slug}}
+    <div>
+      <h1>{{.Platform.Name}}</h1>
+      <p class="sub">{{.Platform.Slug}} &middot; cores: {{join .Platform.Cores ", "}}</p>
+    </div>
+  </div>
   <p class="destination">Downloads are installed in the <code>{{.Destination}}</code> library folder</p>
   <div class="toolbar">
     <form class="filters" method="get" action="/platform/{{.Platform.Slug}}">
@@ -151,7 +182,7 @@
 {{if .Game}}
 <section class="section detail">
   <div class="detail-cover">
-    <span class="cover-frame"><span class="cover-missing">{{.Game.Title}}</span>{{if .Game.Cover}}<img class="cover" decoding="async" src="{{.Game.Cover}}" alt="{{.Game.Title}}">{{end}}</span>
+    <span class="cover-frame"><span class="cover-missing">{{template "platform-icon" .Game.Platform}}<span class="cover-missing-title">{{.Game.Title}}</span></span>{{if .Game.Cover}}<img class="cover" decoding="async" src="{{.Game.Cover}}" alt="{{.Game.Title}}">{{end}}</span>
   </div>
   <div class="detail-body">
     <h1>{{.Game.Title}}</h1>
@@ -170,6 +201,7 @@
 </section>
 {{end}}
 </main>
+</div>
 <aside id="downloads-panel" class="drawer" aria-labelledby="downloads-title" data-jobs-endpoint="/api/jobs" data-open="false" inert>
   <div class="drawer-head">
     <h2 id="downloads-title">Downloads</h2>

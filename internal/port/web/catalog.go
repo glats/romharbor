@@ -29,6 +29,9 @@ var catalogFuncs = template.FuncMap{
 	"join":   strings.Join,
 	"compat": compatibilityLabel,
 	"hint":   labelHint,
+
+	"platforms":     rom.Platforms,
+	"platformStyle": platformStyle,
 }
 
 const (
