@@ -101,6 +101,15 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET / (the `SearchLolRoms` operationId).
 	SearchLolRoms(ctx context.Context, params *SearchLolRomsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListLolRomsDirectory List a console directory
+	//
+	// Returns an HTML index of one console folder. Every anchor that links to an
+	// archive file directly under the folder is one game; anchors that lead to
+	// sub folders are not games.
+	//
+	// Corresponds with GET /{vendor}/{console}/ (the `ListLolRomsDirectory` operationId).
+	ListLolRomsDirectory(ctx context.Context, vendor string, console string, reqEditors ...RequestEditorFn) (*http.Response, error)
 }
 
 // SearchLolRoms Search the listing
@@ -112,6 +121,25 @@ type ClientInterface interface {
 // Corresponds with GET / (the `SearchLolRoms` operationId).
 func (c *Client) SearchLolRoms(ctx context.Context, params *SearchLolRomsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSearchLolRomsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListLolRomsDirectory List a console directory
+//
+// Returns an HTML index of one console folder. Every anchor that links to an
+// archive file directly under the folder is one game; anchors that lead to
+// sub folders are not games.
+//
+// Corresponds with GET /{vendor}/{console}/ (the `ListLolRomsDirectory` operationId).
+func (c *Client) ListLolRomsDirectory(ctx context.Context, vendor string, console string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLolRomsDirectoryRequest(c.Server, vendor, console)
 	if err != nil {
 		return nil, err
 	}
@@ -162,6 +190,47 @@ func NewSearchLolRomsRequest(server string, params *SearchLolRomsParams) (*http.
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
 		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListLolRomsDirectoryRequest constructs an http.Request for the ListLolRomsDirectory method
+func NewListLolRomsDirectoryRequest(server string, vendor string, console string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "vendor", vendor, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "console", console, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/%s/%s/", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
@@ -225,6 +294,17 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with GET / (the `SearchLolRoms` operationId).
 	SearchLolRomsWithResponse(ctx context.Context, params *SearchLolRomsParams, reqEditors ...RequestEditorFn) (*SearchLolRomsResponse, error)
+
+	// ListLolRomsDirectoryWithResponse List a console directory
+	//
+	// Returns an HTML index of one console folder. Every anchor that links to an
+	// archive file directly under the folder is one game; anchors that lead to
+	// sub folders are not games.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /{vendor}/{console}/ (the `ListLolRomsDirectory` operationId).
+	ListLolRomsDirectoryWithResponse(ctx context.Context, vendor string, console string, reqEditors ...RequestEditorFn) (*ListLolRomsDirectoryResponse, error)
 }
 
 type SearchLolRomsResponse struct {
@@ -261,6 +341,40 @@ func (r SearchLolRomsResponse) ContentType() string {
 	return ""
 }
 
+type ListLolRomsDirectoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+}
+
+// GetBody returns the raw response body bytes
+func (r ListLolRomsDirectoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListLolRomsDirectoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListLolRomsDirectoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListLolRomsDirectoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 // SearchLolRomsWithResponse Search the listing
 //
 // Returns an HTML page. Every anchor that links to an archive file under a
@@ -278,6 +392,23 @@ func (c *ClientWithResponses) SearchLolRomsWithResponse(ctx context.Context, par
 	return ParseSearchLolRomsResponse(rsp)
 }
 
+// ListLolRomsDirectoryWithResponse List a console directory
+//
+// Returns an HTML index of one console folder. Every anchor that links to an
+// archive file directly under the folder is one game; anchors that lead to
+// sub folders are not games.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /{vendor}/{console}/ (the `ListLolRomsDirectory` operationId).
+func (c *ClientWithResponses) ListLolRomsDirectoryWithResponse(ctx context.Context, vendor string, console string, reqEditors ...RequestEditorFn) (*ListLolRomsDirectoryResponse, error) {
+	rsp, err := c.ListLolRomsDirectory(ctx, vendor, console, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListLolRomsDirectoryResponse(rsp)
+}
+
 // ParseSearchLolRomsResponse parses an HTTP response from a SearchLolRomsWithResponse call
 func ParseSearchLolRomsResponse(rsp *http.Response) (*SearchLolRomsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -287,6 +418,22 @@ func ParseSearchLolRomsResponse(rsp *http.Response) (*SearchLolRomsResponse, err
 	}
 
 	response := &SearchLolRomsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	return response, nil
+}
+
+// ParseListLolRomsDirectoryResponse parses an HTTP response from a ListLolRomsDirectoryWithResponse call
+func ParseListLolRomsDirectoryResponse(rsp *http.Response) (*ListLolRomsDirectoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListLolRomsDirectoryResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}

@@ -27,10 +27,13 @@ type ItemFile struct {
 	Source string          `json:"source,omitempty"`
 }
 
-// ItemMetadata Item record. ROMHarbor reads only files; other documented properties are not modeled.
+// ItemMetadata Item record. ROMHarbor reads the files and whether the item is access restricted; other documented properties are not modeled.
 type ItemMetadata struct {
 	// Files Files of the item. Absent when the item has none.
 	Files []ItemFile `json:"files,omitempty"`
+
+	// Metadata Descriptive record of the item. The adapter reads only the access-restricted-item flag and tolerates any other shape.
+	Metadata json.RawMessage `json:"metadata,omitempty"`
 }
 
 // ItemNotFound Empty array the API answers for an unknown identifier.

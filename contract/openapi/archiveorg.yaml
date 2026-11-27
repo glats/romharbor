@@ -49,8 +49,14 @@ components:
       maxItems: 0
     ItemMetadata:
       type: object
-      description: Item record. ROMHarbor reads only files; other documented properties are not modeled.
+      description: Item record. ROMHarbor reads the files and whether the item is access restricted; other documented properties are not modeled.
       properties:
+        metadata:
+          description: Descriptive record of the item. The adapter reads only the access-restricted-item flag and tolerates any other shape.
+          x-go-type: json.RawMessage
+          x-go-type-import:
+            path: encoding/json
+          x-go-type-skip-optional-pointer: true
         files:
           type: array
           description: Files of the item. Absent when the item has none.

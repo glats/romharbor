@@ -24,7 +24,7 @@ clients. It compares a fresh generation with the committed files.
 |----------|----------|-------------------|----------|
 | `contract/openapi/archiveorg.yaml` | `GET /metadata/{identifier}` | `internal/adapter/romsource/archiveorgapi` | `ArchiveOrg` source |
 | `contract/openapi/dlarchive.yaml` | `GET /files_api.php` with `action=list` or `action=file-url` | `internal/adapter/romsource/dlarchiveapi` | `DlArchive` source |
-| `contract/openapi/lolroms.yaml` | `GET /` with query `q`, answering `text/html` | `internal/adapter/romsource/lolromsapi` | `LolRoms` source (goquery parses the page) |
+| `contract/openapi/lolroms.yaml` | `GET /` with query `q`, and `GET /{vendor}/{console}/` for a console directory, answering `text/html` | `internal/adapter/romsource/lolromsapi` | `LolRoms` source (goquery parses the page) |
 
 The DlArchive path is one GET operation. Its `action` parameter selects a list
 page, a file URL, or a provider error payload (`ok` false), and the contract

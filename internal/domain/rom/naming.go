@@ -15,6 +15,10 @@ const maxBaseNameBytes = 120
 // archiveExtensions are the container formats the sources publish.
 var archiveExtensions = []string{".zip", ".7z", ".rar"}
 
+// imageExtensions are the disc and cartridge image formats whose extension is
+// dropped from a title, because their files are named after the game alone.
+var imageExtensions = []string{".iso", ".cia", ".rvz", ".wbfs", ".gcm", ".cso", ".cdi", ".gdi"}
+
 // romExtensions are the file extensions of every platform, so a platform that
 // accepts an extension can never be rejected as a non-game file.
 var romExtensions = platformExtensions()
@@ -79,6 +83,13 @@ func CleanTitle(name string) string {
 	base := path.Base(name)
 	for _, ext := range archiveExtensions {
 		if strings.HasSuffix(strings.ToLower(base), ext) {
+			base = base[:len(base)-len(ext)]
+			break
+		}
+	}
+	lower := strings.ToLower(base)
+	for _, ext := range imageExtensions {
+		if strings.HasSuffix(lower, ext) {
 			base = base[:len(base)-len(ext)]
 			break
 		}

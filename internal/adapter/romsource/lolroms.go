@@ -37,6 +37,19 @@ func (l *LolRoms) Name() string { return "lolroms" }
 
 func (l *LolRoms) SearchOnly() bool { return true }
 
+// Lists reports whether the source browses the platform's console directory
+// instead of waiting for a search term.
+func (l *LolRoms) Lists(slug string) bool {
+	_, ok := lolRomsDirectories[slug]
+	return ok
+}
+
+// lolRomsDirectories maps the platforms that no curated set covers to the
+// console directory the source publishes as a plain file index.
+var lolRomsDirectories = map[string]string{
+	"lynx": "Atari/Lynx",
+}
+
 // Platforms lists the platforms the source can serve.
 func (l *LolRoms) Platforms() []string {
 	out := make([]string, 0, len(lolRomsConsoles))
@@ -60,6 +73,8 @@ var lolRomsConsoles = map[string][]string{
 	"psx":       {"PlayStation", "Sony PlayStation"},
 	"ps2":       {"PlayStation 2", "Sony PlayStation 2"},
 	"psp":       {"PlayStation Portable", "Sony PlayStation Portable"},
+	"n3ds":      {"3DS"},
+	"lynx":      {"Lynx"},
 	"saturn":    {"Saturn", "Sega Saturn"},
 	"dc":        {"DreamCast", "Sega Dreamcast"},
 	"ngc":       {"GameCube", "Nintendo GameCube"},
@@ -85,9 +100,12 @@ var lolRomsArchive = regexp.MustCompile(`(?i)\.(7z|chd|zip)$`)
 
 const lolRomsMaxResponseBytes = 8 << 20
 
-// Search returns the games that match the query.
+// Search returns the games that match the query. A query without text lists
+// the console directory of a platform the source browses.
 func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
-	if q.Text == "" {
+	directory, browse := lolRomsDirectories[q.Platform]
+	browse = browse && q.Text == ""
+	if q.Text == "" && !browse {
 		return nil, fmt.Errorf("lolroms: a search term is required")
 	}
 	if l.HTTPClient == nil {
@@ -101,18 +119,26 @@ func (l *LolRoms) Search(ctx context.Context, q rom.Query) ([]rom.Game, error) {
 	if err != nil {
 		return nil, err
 	}
-	resp, err := client.SearchLolRoms(ctx, &lolromsapi.SearchLolRomsParams{Q: q.Text})
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("lolroms: %s", resp.Status)
-	}
-	resp.Body = boundBody(resp.Body, lolRomsMaxResponseBytes)
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("lolroms: %w", err)
+	var body []byte
+	if browse {
+		vendor, console, _ := strings.Cut(directory, "/")
+		resp, err := client.ListLolRomsDirectory(ctx, vendor, console)
+		if err != nil {
+			return nil, err
+		}
+		body, err = readLolRomsPage(resp.StatusCode, resp.Status, resp.Body)
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		resp, err := client.SearchLolRoms(ctx, &lolromsapi.SearchLolRomsParams{Q: q.Text})
+		if err != nil {
+			return nil, err
+		}
+		body, err = readLolRomsPage(resp.StatusCode, resp.Status, resp.Body)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
@@ -219,4 +245,17 @@ func (l *LolRoms) ResolveGame(id string) (rom.Game, bool) {
 
 func hasControl(s string) bool {
 	return strings.IndexFunc(s, func(r rune) bool { return unicode.IsControl(r) }) >= 0
+}
+
+// readLolRomsPage closes the response body and returns the bounded page.
+func readLolRomsPage(status int, statusText string, body io.ReadCloser) ([]byte, error) {
+	defer func() { _ = body.Close() }()
+	if status != 200 {
+		return nil, fmt.Errorf("lolroms: %s", statusText)
+	}
+	page, err := io.ReadAll(boundBody(body, lolRomsMaxResponseBytes))
+	if err != nil {
+		return nil, fmt.Errorf("lolroms: %w", err)
+	}
+	return page, nil
 }

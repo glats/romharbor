@@ -25,6 +25,8 @@ var errBodyTooLarge = errors.New("response body exceeds the size limit")
 
 var errUnparsableSize = errors.New("file size is not a number")
 
+var errAccessRestricted = errors.New("the item is access-restricted: its files cannot be downloaded")
+
 type boundedReader struct {
 	body      io.Reader
 	remaining int64
@@ -79,17 +81,27 @@ func NewArchiveOrg(client archiveorgapi.HttpRequestDoer) *ArchiveOrg {
 		HTTPClient: client,
 		BaseURL:    "https://archive.org",
 		Sets: map[string][]string{
-			"nes":     {"nes-collection-no-intro"},
-			"snes":    {"nointro-snes"},
-			"gb":      {"nointro-nintendo-gameboy"},
-			"gbc":     {"ef_GBC_No-Intro"},
-			"gba":     {"ef_gba_no-intro_2024-02-21"},
-			"genesis": {"nointro.md"},
-			"n64":     {"ef_nintendo_64_no-intro_2024-02-10"},
-			"nds":     {"ni-n-ds-dec_202401"},
-			"psx":     {"non-redump_sony_playstation"},
-			"psp":     {"non-redump_sony_playstation_portable"},
-			"arcade":  {"mame-merged"},
+			"nes":       {"nes-collection-no-intro"},
+			"snes":      {"nointro-snes"},
+			"gb":        {"nointro-nintendo-gameboy"},
+			"gbc":       {"ef_GBC_No-Intro"},
+			"gba":       {"ef_gba_no-intro_2024-02-21"},
+			"genesis":   {"nointro.md"},
+			"n64":       {"ef_nintendo_64_no-intro_2024-02-10"},
+			"nds":       {"ni-n-ds-dec_202401"},
+			"psx":       {"ps1lollo"},
+			"ps2":       {"playstation2_essentials", "playstation2_essentials_part2", "playstation-2-game-dumps"},
+			"psp":       {"psp-cso-collection"},
+			"ngc":       {"zoocube", "GameCube_rvz-english", "gamecubegames"},
+			"wii":       {"Wii_ISO"},
+			"n3ds":      {"nintendo3dscias"},
+			"saturn":    {"sega_saturn"},
+			"dc":        {"DreamcastSelfBoot", "ef_SEGA_GDI_USA", "DreamcastCHD2020_0-O"},
+			"switch":    {"switch-dumps-nsp-xci", "switch-dump-nsp-xci", "friday-the-13th-the-game-v-0-010092-a-00-c-4-b-6000"},
+			"psvita":    {"psv-homebrew", "psvita-homebrew-collection-1-14-2024"},
+			"ngage":     {"Nokia_N-Gage_Mega_Collection_Mirror"},
+			"arcade":    {"mame-2003-plus-reference-set"},
+			"atari2600": {"nointro.atari-2600"},
 		},
 		logger: slog.Default(),
 	}
@@ -148,13 +160,25 @@ func (a *ArchiveOrg) Search(ctx context.Context, q rom.Query) ([]rom.Game, error
 	}
 
 	var games []rom.Game
+	var failures []error
+	asked := 0
 	for _, slug := range platforms {
 		for _, item := range a.Sets[slug] {
+			asked++
 			found, err := a.gamesOfItem(ctx, slug, item)
 			if err != nil {
-				return nil, fmt.Errorf("archive.org %s: %w", item, err)
+				failures = append(failures, fmt.Errorf("archive.org %s: %w", item, err))
+				continue
 			}
 			games = append(games, found...)
+		}
+	}
+	if len(failures) > 0 {
+		if len(failures) == asked {
+			return nil, failures[0]
+		}
+		for _, failure := range failures {
+			a.logger.Error("archive.org item skipped", "error", failure)
 		}
 	}
 
@@ -190,6 +214,9 @@ func (a *ArchiveOrg) gamesOfItem(ctx context.Context, slug, item string) ([]rom.
 	meta, err := a.metadata(ctx, item)
 	if err != nil {
 		return nil, err
+	}
+	if accessRestricted(meta.Metadata) {
+		return nil, fmt.Errorf("metadata %s: %w", item, errAccessRestricted)
 	}
 	base, ok := rom.PlatformBySlug(slug)
 	if !ok {
@@ -268,4 +295,14 @@ func (a *ArchiveOrg) metadata(ctx context.Context, item string) (*archiveorgapi.
 		return nil, fmt.Errorf("metadata %s: %w", item, err)
 	}
 	return &meta, nil
+}
+
+func accessRestricted(raw json.RawMessage) bool {
+	var descriptor struct {
+		AccessRestricted string `json:"access-restricted-item"`
+	}
+	if err := json.Unmarshal(raw, &descriptor); err != nil {
+		return false
+	}
+	return strings.EqualFold(descriptor.AccessRestricted, "true")
 }

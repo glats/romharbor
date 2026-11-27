@@ -21,7 +21,11 @@ into a library organized by platform. Run it on your own server and keep your li
   disc gets no playlist.
 - Cache listings locally to avoid fetching them on every visit.
 
-Archive.org is the default source. `dlarchive` and `lolroms` are opt-in; `lolroms` requires search text.
+Archive.org is the default source. `dlarchive` and `lolroms` are opt-in; `lolroms` requires search text
+except for the platforms whose console directory it browses (Atari Lynx).
+Archive.org lists a curated, openly downloadable set of items for every platform: an item the
+site marks as access-restricted is refused and reported as a failed source instead of listing games
+that cannot be downloaded. The Nintendo Switch, PS Vita and N-Gage sets are small or homebrew-heavy.
 Source availability and metadata depend on the upstream provider.
 
 For a finished PlayStation download, `GET /api/job/readiness?id=<job-id>` checks the installed

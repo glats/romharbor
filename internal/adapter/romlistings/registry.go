@@ -81,13 +81,27 @@ func (r *registry) queried(q rom.Query) []adapter.RomSource {
 		if !serves(s, q.Platform) {
 			continue
 		}
-		searchOnly, ok := s.(adapter.RomSearchOnlySource)
-		if (ok && searchOnly.SearchOnly()) != (q.Text != "") {
+		if !asked(s, q) {
 			continue
 		}
 		out = append(out, s)
 	}
 	return out
+}
+
+// asked reports whether the source answers this kind of query: listing
+// sources answer a query without text, search-only sources answer text, and a
+// search-only source that browses the platform also answers without text.
+func asked(s adapter.RomSource, q rom.Query) bool {
+	searchOnly, ok := s.(adapter.RomSearchOnlySource)
+	if !ok || !searchOnly.SearchOnly() {
+		return q.Text == ""
+	}
+	if q.Text != "" {
+		return true
+	}
+	lister, ok := s.(adapter.RomPlatformLister)
+	return ok && lister.Lists(q.Platform)
 }
 
 func serves(s adapter.RomSource, platform string) bool {

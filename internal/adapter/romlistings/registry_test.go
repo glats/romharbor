@@ -48,3 +48,29 @@ func (f *fakeSource) Platforms() []string { return f.platforms }
 func (f *fakeSource) Search(context.Context, rom.Query) ([]rom.Game, error) {
 	return f.games, nil
 }
+
+type listerSource struct {
+	fakeSource
+	lists string
+}
+
+func (l *listerSource) SearchOnly() bool       { return true }
+func (l *listerSource) Lists(slug string) bool { return slug == l.lists }
+
+func TestRegistryAsksASearchOnlyListerForItsPlatformsWithoutText(t *testing.T) {
+	lister := &listerSource{fakeSource: fakeSource{name: "lister", games: []rom.Game{{ID: "x", Source: "lister"}}}, lists: "lynx"}
+	r := newRegistry([]adapter.RomSource{lister}, DefaultSourceTimeout, slog.Default())
+
+	listed, err := r.search(context.Background(), rom.Query{Platform: "lynx"})
+	if err != nil || len(listed.Games) != 1 {
+		t.Fatalf("lynx listing = %+v, %v", listed, err)
+	}
+	other, err := r.search(context.Background(), rom.Query{Platform: "snes"})
+	if err != nil || len(other.Games) != 0 {
+		t.Fatalf("snes listing = %+v, %v", other, err)
+	}
+	searched, err := r.search(context.Background(), rom.Query{Platform: "snes", Text: "mario"})
+	if err != nil || len(searched.Games) != 1 {
+		t.Fatalf("search = %+v, %v", searched, err)
+	}
+}

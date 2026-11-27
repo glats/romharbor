@@ -49,6 +49,10 @@ func TestCleanTitle(t *testing.T) {
 		{"No-Intro - Super Mario Bros. (USA).zip", "Super Mario Bros. (USA)"},
 		{"007 - Everything or Nothing (Japan).zip", "007 - Everything or Nothing (Japan)"},
 		{"Sonic The Hedgehog (USA, Europe).7z", "Sonic The Hedgehog (USA, Europe)"},
+		{"Marvel Ultimate Alliance 2.iso", "Marvel Ultimate Alliance 2"},
+		{"Games/007 - From Russia with Love.rvz", "007 - From Russia with Love"},
+		{"3D Sonic the Hedgehog (USA).CIA", "3D Sonic the Hedgehog (USA)"},
+		{"Dr. Mario", "Dr. Mario"},
 	}
 	for _, tt := range cases {
 		if got := CleanTitle(tt.name); got != tt.want {

@@ -35,3 +35,33 @@ paths:
                 type: string
         default:
           description: Any other status. The adapter reports the HTTP status only.
+  /{vendor}/{console}/:
+    get:
+      operationId: listLolRomsDirectory
+      summary: List a console directory
+      description: |
+        Returns an HTML index of one console folder. Every anchor that links to an
+        archive file directly under the folder is one game; anchors that lead to
+        sub folders are not games.
+      parameters:
+        - name: vendor
+          in: path
+          required: true
+          description: Vendor folder, such as Atari.
+          schema:
+            type: string
+        - name: console
+          in: path
+          required: true
+          description: Console folder, such as Lynx.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: HTML directory index.
+          content:
+            text/html:
+              schema:
+                type: string
+        default:
+          description: Any other status. The adapter reports the HTTP status only.

@@ -30,6 +30,13 @@ type RomSearchOnlySource interface {
 	SearchOnly() bool
 }
 
+// RomPlatformLister is a search-only source that can still list the platforms
+// whose index it browses, so those platforms are not empty without a search.
+type RomPlatformLister interface {
+	RomSearchOnlySource
+	Lists(platform string) bool
+}
+
 // RomGameResolver is a source that can rebuild a game from its ID alone, so a
 // game found by a search stays reachable after a restart.
 type RomGameResolver interface {
