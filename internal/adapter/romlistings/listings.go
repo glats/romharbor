@@ -155,7 +155,7 @@ func (l *Listings) listing(ctx context.Context, platform string) (rom.GamePage, 
 	l.mu.RLock()
 	cached, ok := l.listings[platform]
 	l.mu.RUnlock()
-	if ok && l.fresh(cached.Fetched) {
+	if ok && l.fresh(cached) {
 		return rom.GamePage{Games: cached.Games}, nil
 	}
 	return l.flights.do(ctx, platform, func(ctx context.Context) (rom.GamePage, error) {
@@ -172,7 +172,7 @@ func (l *Listings) refresh(ctx context.Context, platform string) (rom.GamePage, 
 		if !errors.Is(err, fs.ErrNotExist) {
 			l.logger.Error("listing cache entry unusable", "platform", platform, "error", err)
 		}
-	} else if l.fresh(disk.Fetched) {
+	} else if l.fresh(disk) {
 		l.remember(platform, disk)
 		return rom.GamePage{Games: disk.Games}, nil
 	}
@@ -214,6 +214,15 @@ func (l *Listings) remember(platform string, listing rom.Listing) {
 	l.mu.Unlock()
 }
 
-func (l *Listings) fresh(fetched time.Time) bool {
-	return l.now().Sub(fetched) < l.ttl
+// emptyListingTTL is how long a listing without games is trusted: an empty
+// answer usually means a source was missing or did not serve the platform yet,
+// so it must not hide a corrected source for the whole ttl.
+const emptyListingTTL = 5 * time.Minute
+
+func (l *Listings) fresh(listing rom.Listing) bool {
+	ttl := l.ttl
+	if len(listing.Games) == 0 && ttl > emptyListingTTL {
+		ttl = emptyListingTTL
+	}
+	return l.now().Sub(listing.Fetched) < ttl
 }

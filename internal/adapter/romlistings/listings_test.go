@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -232,5 +233,78 @@ func TestListingFreshnessFollowsTheInjectedClock(t *testing.T) {
 	fetch()
 	if got := source.calls.Load(); got != 2 {
 		t.Fatalf("source asked %d times once the TTL elapsed, want 2", got)
+	}
+}
+
+type switchableSource struct {
+	games []rom.Game
+	calls int
+}
+
+func (s *switchableSource) Name() string        { return "switchable" }
+func (s *switchableSource) Platforms() []string { return nil }
+func (s *switchableSource) Search(context.Context, rom.Query) ([]rom.Game, error) {
+	s.calls++
+	return s.games, nil
+}
+
+type storingCache struct {
+	listing rom.Listing
+	ok      bool
+}
+
+func (c *storingCache) Load(string) (rom.Listing, error) {
+	if !c.ok {
+		return rom.Listing{}, fmt.Errorf("cache: %w", fs.ErrNotExist)
+	}
+	return c.listing, nil
+}
+
+func (c *storingCache) Store(_ string, listing rom.Listing) error {
+	c.listing, c.ok = listing, true
+	return nil
+}
+
+func TestAnEmptyListingIsAskedAgainSoonInsteadOfStayingEmptyForTheWholeTTL(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	source := &switchableSource{}
+	listings := NewListings([]adapter.RomSource{source}, &storingCache{}, 24*time.Hour, WithClock(func() time.Time { return now }))
+	obtain := func() int {
+		t.Helper()
+		page, err := listings.ObtainPlatformListing(context.Background(), "ps2")
+		if err != nil {
+			t.Fatalf("ObtainPlatformListing() error = %v", err)
+		}
+		return len(page.Games)
+	}
+
+	if got := obtain(); got != 0 {
+		t.Fatalf("got %d games, want 0", got)
+	}
+	now = now.Add(emptyListingTTL - time.Second)
+	obtain()
+	if source.calls != 1 {
+		t.Fatalf("source asked %d times inside the empty TTL, want 1", source.calls)
+	}
+
+	source.games = []rom.Game{{ID: "a", Title: "A"}}
+	now = now.Add(time.Second)
+	if got := obtain(); got != 1 {
+		t.Fatalf("got %d games once the empty TTL elapsed, want 1", got)
+	}
+}
+
+func TestAnEmptyListingStoredOnDiskIsNotTrustedForTheWholeTTL(t *testing.T) {
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	cache := &storingCache{ok: true, listing: rom.Listing{Fetched: now.Add(-time.Hour)}}
+	source := &switchableSource{games: []rom.Game{{ID: "a", Title: "A"}}}
+	listings := NewListings([]adapter.RomSource{source}, cache, 24*time.Hour, WithClock(func() time.Time { return now }))
+
+	page, err := listings.ObtainPlatformListing(context.Background(), "ps2")
+	if err != nil {
+		t.Fatalf("ObtainPlatformListing() error = %v", err)
+	}
+	if len(page.Games) != 1 || source.calls != 1 {
+		t.Fatalf("games = %d, source calls = %d; want the source asked again for 1 game", len(page.Games), source.calls)
 	}
 }
